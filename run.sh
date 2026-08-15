@@ -1,14 +1,18 @@
 #!/bin/bash
 set -e
 
-# Đảm bảo lệnh docker compose chạy mượt mà ngay cả trên phiên bản cũ
+# Chọn Docker Compose v2 hoặc fallback docker-compose v1.
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker chưa được cài đặt!"
     exit 1
 fi
-if ! docker compose version &> /dev/null; then
-    shopt -s expand_aliases
-    alias docker compose="docker-compose"
+if docker compose version &> /dev/null; then
+    compose() { sudo docker compose "$@"; }
+elif command -v docker-compose &> /dev/null; then
+    compose() { sudo docker-compose "$@"; }
+else
+    echo "❌ Không tìm thấy Docker Compose (docker compose hoặc docker-compose)."
+    exit 1
 fi
 
 check_lavalink() {
@@ -85,18 +89,18 @@ while true; do
     case $choice in
         1)
             echo "🛑 Đang tháo gỡ nền tảng cũ..."
-            sudo docker compose down --remove-orphans 2>/dev/null || true
+            compose down --remove-orphans 2>/dev/null || true
             # Đảm bảo thư mục data tồn tại
             mkdir -p ./data
             # Xoá db.json cũ ở root nếu còn sót
             rm -rf ./db.json 2>/dev/null || true
             echo "⚙️  Đang rèn (Build) lại Image Docker mã nguồn..."
-            sudo docker compose build --no-cache discordmusicbot
+            compose build --no-cache discordmusicbot
             echo "🚀 Đang kích hoạt Bot..."
-            sudo docker compose up -d discordmusicbot
+            compose up -d discordmusicbot
             check_lavalink
             echo "📋 Đang mở Nhật ký hiển thị... (Bấm Ctrl+C để thoát Nhật ký)"
-            sudo docker compose logs -f discordmusicbot
+            compose logs -f discordmusicbot
             ;;
         2)
             check_lavalink
@@ -111,8 +115,12 @@ while true; do
                 read -p "2. Cổng Cắm (Port) (VD: 443, 80 hoặc 2333): " lava_port
                 while [[ -z "$lava_port" ]]; do read -p "❌ Trống! Điền lại Port: " lava_port; done
 
-                read -p "3. Mật Vị Authorization (Password): " lava_auth
-                while [[ -z "$lava_auth" ]]; do read -p "❌ Trống! Điền lại Authorization: " lava_auth; done
+                read -r -s -p "3. Mật khẩu Authorization: " lava_auth
+                echo
+                while [[ -z "$lava_auth" ]]; do
+                    read -r -s -p "❌ Trống! Điền lại Authorization: " lava_auth
+                    echo
+                done
 
                 echo "4. Lớp Bảo Mật Secure (Là HTTPS hay WSS mới có):"
                 echo "   1) Chọn False (Nền HTTP)"
@@ -130,7 +138,7 @@ while true; do
                 echo "⏳ Đang thử đập cửa gọi Lavalink ($proto://$lava_host:$lava_port)..."
                 status_code=$(curl -m 5 -s -o /dev/null -w "%{http_code}" -H "Authorization: $lava_auth" "$proto://$lava_host:$lava_port/v4/info" || echo "failed")
                 
-                if [[ "$status_code" == "200" ]] || [[ "$status_code" == "404" ]]; then
+                if [[ "$status_code" == "200" ]]; then
                     echo "✅ Xác thực Tốt! Bắt đầu tráo dòng config..."
                     break
                 else
@@ -154,18 +162,18 @@ while true; do
             ;;
         4)
             echo "🛑 Đang cắt điện toàn bộ hệ thống Bot..."
-            sudo docker compose down
+            compose down
             echo "✅ Gỡ trạm thành công!"
             ;;
         5)
             echo "♻️  Đang Reboot nóng cho Bot..."
-            sudo docker compose restart discordmusicbot
+            compose restart discordmusicbot
             echo "✅ Kích xong!"
             ;;
         6)
             echo "📋 Đang theo dõi cửa sổ Nhật ký (Logs)..."
             echo "   (Ấn Ctrl + C để ngừng theo dõi)"
-            sudo docker compose logs -f discordmusicbot
+            compose logs -f discordmusicbot
             ;;
         7)
             echo ""
