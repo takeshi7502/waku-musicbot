@@ -21,7 +21,7 @@ const ACTIVITY_OPTIONS = [
   { label: "Đang nghe", description: "Listening status", value: "listening", emoji: "🎧" },
   { label: "Đang thi đấu", description: "Competing status", value: "competing", emoji: "🏆" },
   { label: "Đang stream", description: "Streaming status", value: "streaming", emoji: "📺" },
-  { label: "Bong bóng Custom", description: "Custom status bubble", value: "custom", emoji: "💬" }
+  { label: t("activity.bubble"), description: t("activity.bubbleDescription"), value: "custom", emoji: "💬" }
 ];
 
 const STATUS_OPTIONS = [
@@ -46,7 +46,7 @@ const ACTIVITY_LABELS = {
   listening: "🎧 Đang nghe",
   competing: "🏆 Đang thi đấu",
   streaming: "📺 Đang stream",
-  custom: "💬 Bong bóng custom"
+  custom: "💬 " + t("activity.bubble")
 };
 
 const STATUS_LABELS = {
@@ -117,11 +117,8 @@ function buildEmbed(client) {
     .setDescription([
       `**Activity:** ${ACTIVITY_LABELS[current.type] || "Không có activity"}`,
       `**Nội dung:** \`${current.text}\``,
-      `**Trạng thái:** ${STATUS_LABELS[current.status] || "🟢 Online"}`,
-      "",
-      "Dùng menu bên dưới để đổi kiểu activity hoặc trạng thái online."
-    ].join("\n"))
-    .setFooter({ text: "/activity • chỉ Admin Bot nhìn thấy bảng này" });
+      `**Trạng thái:** ${STATUS_LABELS[current.status] || "🟢 Online"}`
+    ].join("\n"));
 }
 
 function buildComponents() {

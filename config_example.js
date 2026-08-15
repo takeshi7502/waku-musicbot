@@ -22,7 +22,7 @@ module.exports = {
 	// You need a lavalink v4 server for this bot to work!!!!
 	nodes: [
 		{
-			id: "Main Node", //- Used for identifier in stats commands.
+			id: "node0", //- Used for identifier in stats commands.
 			host: "127.0.0.1", //- The host name or IP of the lavalink server.
 			port: 2333, // The port that lavalink is listening to. This must be a number!
 			authorization: "youshallnotpass", //- The password of the lavalink server.
@@ -37,8 +37,8 @@ module.exports = {
 		status: "online", //- You can have online, idle, dnd and invisible (Note: invisible makes people think the bot is offline)
 		activities: [
 			{
-				name: "Custom Status", //- Tên bắt buộc nội bộ (không hiển thị ra ngoài khi dùng type 4)
-				type: 4, //- 4=Custom (Bong bóng), 0=Playing, 1=Streaming, 2=Listening, 3=Watching, 5=Competing
+				name: "Playing Music | /play", //- Tên bắt buộc nội bộ (không hiển thị ra ngoài khi dùng type 4)
+				type: 4, // 0=Playing, 1=Streaming, 2=Listening, 3=Watching, 4=Custom (Bong bóng), 5=Competing
 				state: "Playing Music | /play", //- Text hiển thị trong bong bóng (chỉ dùng cho type 4)
 			},
 		],

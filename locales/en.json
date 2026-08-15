@@ -217,7 +217,21 @@
     "auto_72": "Show this list",
     "auto_73": "Command of {var1}",
     "auto_74": "Discord Music Bot Version: v{var1}; Build: {var2}",
-    "auto_75": "Discord Music Bot Version: v{var1}; Build: {var2}"
+    "auto_75": "Discord Music Bot Version: v{var1}; Build: {var2}",
+    "page": "Page {current} / {total}",
+    "close": "Close"
+  },
+  "about": {
+    "description": "View information about the bot",
+    "author": "About {botName}",
+    "summary": "A Discord music bot powered by Lavalink.",
+    "version": "Version",
+    "revision": "Revision",
+    "unknownRevision": "unknown",
+    "support": "Support server",
+    "website": "Website",
+    "sourceMod": "Modified source",
+    "source": "Original source"
   },
   "toggle": {
     "247": {
@@ -317,7 +331,9 @@
     "changed": "✅ | Language has been changed to **{language}**!"
   },
   "activity": {
-    "auto_1": "Manage bot activity and presence status"
+    "auto_1": "Manage bot activity and presence status",
+    "bubble": "Custom status",
+    "bubbleDescription": "Custom status bubble"
   },
   "reload": {
     "noPermission": "You are not authorized to use this command!",

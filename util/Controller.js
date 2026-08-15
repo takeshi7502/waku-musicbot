@@ -4,6 +4,9 @@ const {
 const {
   t
 } = require("./i18n");
+const {
+  buildNowPlayingEmbed
+} = require("./nowPlayingEmbed");
 
 /**
  *
@@ -87,6 +90,7 @@ module.exports = async (client, interaction) => {
         var2: player.paused ? "Tạm dừng" : "Tiếp tục"
       }));
       return interaction.update({
+        embeds: [buildNowPlayingEmbed(client, player, player.queue.current)],
         components: client.createController(player.guildId, player)
       }).catch(() => {});
     }

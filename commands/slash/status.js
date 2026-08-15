@@ -116,8 +116,7 @@ const command = new SlashCommand().setName("status").setDescription(t("status.au
     }
   };
   const collector = interaction.channel?.createMessageComponentCollector?.({
-    filter: btn => ["status_auto", "status_stop"].includes(btn.customId) && btn.user.id === interaction.user.id,
-    time: 600000
+    filter: btn => ["status_auto", "status_stop"].includes(btn.customId) && btn.user.id === interaction.user.id
   });
   if (!collector) return;
   collector.on("collect", async btn => {

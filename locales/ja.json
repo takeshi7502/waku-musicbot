@@ -217,7 +217,21 @@
     "auto_72": "このリストを表示",
     "auto_73": "{var1}のコマンド",
     "auto_74": "Discord 音楽ボットのバージョン: v{var1};ビルド: {var2}",
-    "auto_75": "Discord 音楽ボットのバージョン: v{var1};ビルド: {var2}"
+    "auto_75": "Discord 音楽ボットのバージョン: v{var1};ビルド: {var2}",
+    "page": "ページ {current} / {total}",
+    "close": "閉じる"
+  },
+  "about": {
+    "description": "ボットの情報を表示します",
+    "author": "{botName}について",
+    "summary": "Lavalink を利用した Discord 音楽ボットです。",
+    "version": "バージョン",
+    "revision": "リビジョン",
+    "unknownRevision": "不明",
+    "support": "サポートサーバー",
+    "website": "ウェブサイト",
+    "sourceMod": "改変版ソース",
+    "source": "オリジナルソース"
   },
   "toggle": {
     "247": {
@@ -317,7 +331,9 @@
     "changed": "✅ | 言語を **{language}** に変更しました!"
   },
   "activity": {
-    "auto_1": "ボットのアクティビティとプレゼンス状態を管理します"
+    "auto_1": "ボットのアクティビティとプレゼンス状態を管理します",
+    "bubble": "カスタムステータス",
+    "bubbleDescription": "カスタムステータスの表示"
   },
   "reload": {
     "noPermission": "このコマンドを使用する権限がありません。",

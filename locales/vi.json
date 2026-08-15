@@ -217,7 +217,21 @@
     "auto_72": "Hiển thị danh sách này",
     "auto_73": "Lệnh của {var1}",
     "auto_74": "Phiên Bản Discord Music Bot: v{var1}; Build: {var2}",
-    "auto_75": "Phiên Bản Discord Music Bot: v{var1}; Build: {var2}"
+    "auto_75": "Phiên Bản Discord Music Bot: v{var1}; Build: {var2}",
+    "page": "Trang {current} / {total}",
+    "close": "Đóng"
+  },
+  "about": {
+    "description": "Xem thông tin về bot",
+    "author": "Thông tin về {botName}",
+    "summary": "Bot nghe nhạc Discord sử dụng Lavalink.",
+    "version": "Phiên bản",
+    "revision": "Phiên bản mã",
+    "unknownRevision": "không xác định",
+    "support": "Máy chủ hỗ trợ",
+    "website": "Website",
+    "sourceMod": "Mã nguồn bản mod",
+    "source": "Mã nguồn gốc"
   },
   "toggle": {
     "247": {
@@ -317,7 +331,9 @@
     "changed": "✅ | Đã đổi ngôn ngữ sang **{language}**!"
   },
   "activity": {
-    "auto_1": "Quản lý activity và trạng thái hiển thị của bot"
+    "auto_1": "Quản lý activity và trạng thái hiển thị của bot",
+    "bubble": "Bóng bóng",
+    "bubbleDescription": "Trạng thái tuỳ chỉnh"
   },
   "reload": {
     "noPermission": "Bạn không được ủy quyền để sử dụng lệnh này!",
