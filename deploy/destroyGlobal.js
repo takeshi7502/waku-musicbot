@@ -1,28 +1,28 @@
-const { Client, Intents } = require("discord.js");
+const { t } = require("../util/i18n");
+const {
+  Client,
+  GatewayIntentBits
+} = require("discord.js");
 const client = new Client({
-  intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MESSAGES],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 const config = require("../config");
-
 client.login(config.token);
-
 client.on("ready", async () => {
   const commands = await client.application.commands.fetch();
-
   if (commands.size === 0) {
-    console.log("Could not find any global commands.");
+    console.log(t("deploy.auto_324"));
     process.exit();
   }
-
   let deletedCount = 0;
-
-  commands.forEach(async (command) => {
+  commands.forEach(async command => {
     await client.application.commands.delete(command.id);
-    console.log(`Slash Command with ID ${command.id} has been deleted.`);
+    console.log(t("deploy.auto_325", {
+      var1: command.id
+    }));
     deletedCount++;
-
     if (deletedCount === commands.size) {
-      console.log(`Successfully deleted all global slash commands.`);
+      console.log(t("deploy.auto_326"));
       process.exit();
     }
   });

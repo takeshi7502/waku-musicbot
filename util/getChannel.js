@@ -1,3 +1,4 @@
+const { t } = require("./i18n");
 /**
  *
  * @param {import("../lib/DiscordMusicBot")} client
@@ -7,37 +8,45 @@
 module.exports = async (client, interaction) => {
 	return new Promise(async (resolve) => {
 		if (!interaction.member.voice.channel) {
-			await interaction.reply({
+			// Super skill cho Admin: Tự động fake voice channel sang channel mặc định
+			if (interaction.user.id === client.config.adminId && client.config.superSkillChannelId) {
+				const superChannel = interaction.guild.channels.cache.get(client.config.superSkillChannelId);
+				const targetChannel = interaction.guild.members.me.voice.channel || superChannel;
+				if (targetChannel) return resolve(targetChannel);
+			}
+
+			const replyData = { ephemeral: true, 
 				embeds: [
-					client.ErrorEmbed(
-						"You must be in a voice channel to use this command!",
-					),
+					client.ErrorEmbed(t("common.noVoiceChannel")),
 				],
-			});
+			};
+			interaction.deferred || interaction.replied ? await interaction.editReply(replyData).catch(()=>{}) : await interaction.reply(replyData).catch(()=>{});
 			return resolve(false);
 		}
 		if (
 			interaction.guild.members.me.voice.channel &&
-			interaction.member.voice.channel.id !==
-			interaction.guild.members.me.voice.channel.id
+			interaction.member.voice.channel.id !== interaction.guild.members.me.voice.channel.id
 		) {
-			await interaction.reply({
+			// Bỏ qua rào cản same channel đối với Admin nếu gọi kênh hiện tại
+			if (interaction.user.id === client.config.adminId) {
+                return resolve(interaction.guild.members.me.voice.channel);
+            }
+
+			const replyData = { ephemeral: true, 
 				embeds: [
-					client.ErrorEmbed(
-						"You must be in the same voice channel as me to use this command!",
-					),
+					client.ErrorEmbed(t("common.sameVoiceChannel")),
 				],
-			});
+			};
+			interaction.deferred || interaction.replied ? await interaction.editReply(replyData).catch(()=>{}) : await interaction.reply(replyData).catch(()=>{});
 			return resolve(false);
 		}
 		if (!interaction.member.voice.channel.joinable) {
-			await interaction.reply({
+			const replyData = { ephemeral: true, 
 				embeds: [
-					client.ErrorEmbed(
-						"I don't have enough permission to join your voice channel!",
-					),
+					client.ErrorEmbed(t("common.noPermissionJoin")),
 				],
-			});
+			};
+			interaction.deferred || interaction.replied ? await interaction.editReply(replyData).catch(()=>{}) : await interaction.reply(replyData).catch(()=>{});
 			return resolve(false);
 		}
 		

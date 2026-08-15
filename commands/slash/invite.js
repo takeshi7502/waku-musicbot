@@ -1,32 +1,15 @@
-const { MessageActionRow, MessageButton, MessageEmbed } = require("discord.js");
+const { t } = require("../../util/i18n");
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder
+} = require("discord.js");
 const SlashCommand = require("../../lib/SlashCommand");
-
-const command = new SlashCommand()
-  .setName("invite")
-  .setDescription("Invite me to your server")
-  .setRun(async (client, interaction, options) => {
-    return interaction.reply({
-      embeds: [
-        new MessageEmbed()
-          .setColor(client.config.embedColor)
-          .setTitle(`Invite me to your server!`),
-      ],
-      components: [
-        new MessageActionRow().addComponents(
-          new MessageButton()
-            .setLabel("Invite me")
-            .setStyle("LINK")
-            .setURL(
-              `https://discord.com/oauth2/authorize?client_id=${
-                client.config.clientId
-              }&permissions=${
-                client.config.permissions
-              }&scope=${client.config.inviteScopes
-                .toString()
-                .replace(/,/g, "%20")}`
-            )
-        ),
-      ],
-    });
+const command = new SlashCommand().setName("invite").setDescription(t("invite.auto_76")).setRun(async (client, interaction, options) => {
+  return interaction.reply({
+    embeds: [new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("invite.auto_77"))],
+    components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setLabel(t("invite.auto_78")).setStyle(ButtonStyle.Link).setURL(`https://discord.com/oauth2/authorize?client_id=${client.config.clientId}&permissions=${client.config.permissions}&scope=bot%20applications.commands`))]
   });
+});
 module.exports = command;

@@ -1,75 +1,47 @@
 const SlashCommand = require("../../lib/SlashCommand");
-const { MessageEmbed } = require("discord.js");
-
-const command = new SlashCommand()
-	.setName("move")
-	.setDescription("Moves track to a different position")
-	.addIntegerOption((option) =>
-		option
-			.setName("track")
-			.setDescription("The track number to move")
-			.setRequired(true),
-	)
-	.addIntegerOption((option) =>
-		option
-			.setName("position")
-			.setDescription("The position to move the track to")
-			.setRequired(true),
-	)
-	
-	.setRun(async (client, interaction) => {
-		const track = interaction.options.getInteger("track");
-		const position = interaction.options.getInteger("position");
-		
-		let channel = await client.getChannel(client, interaction);
-		if (!channel) {
-			return;
-		}
-		
-		let player;
-		if (client.manager) {
-			player = client.manager.players.get(interaction.guild.id);
-		} else {
-			return interaction.reply({
-				embeds: [
-					new MessageEmbed()
-						.setColor("RED")
-						.setDescription("Lavalink node is not connected"),
-				],
-			});
-		}
-		
-		if (!player) {
-			return interaction.reply({
-				embeds: [
-					new MessageEmbed()
-						.setColor("RED")
-						.setDescription("There's nothing playing."),
-				],
-				ephemeral: true,
-			});
-		}
-		
-		let trackNum = Number(track) - 1;
-		if (trackNum < 0 || trackNum > player.queue.length - 1) {
-			return interaction.reply(":x: | **Invalid track number**");
-		}
-		
-		let dest = Number(position) - 1;
-		if (dest < 0 || dest > player.queue.length - 1) {
-			return interaction.reply(":x: | **Invalid position number**");
-		}
-		
-		const thing = player.queue[trackNum];
-		player.queue.splice(trackNum, 1);
-		player.queue.splice(dest, 0, thing);
-		return interaction.reply({
-			embeds: [
-				new MessageEmbed()
-					.setColor(client.config.embedColor)
-					.setDescription(":white_check_mark: | **Moved track**"),
-			],
-		});
-	});
-
+const {
+  EmbedBuilder
+} = require("discord.js");
+const {
+  t
+} = require("../../util/i18n");
+const command = new SlashCommand().setName("move").setDescription(t("move.auto_154")).addIntegerOption(option => option.setName("track").setDescription(t("move.auto_155")).setRequired(true)).addIntegerOption(option => option.setName("position").setDescription(t("move.auto_156")).setRequired(true)).setRun(async (client, interaction) => {
+  const track = interaction.options.getInteger("track");
+  const position = interaction.options.getInteger("position");
+  let channel = await client.getChannel(client, interaction);
+  if (!channel) {
+    return;
+  }
+  let player;
+  if (client.manager) {
+    player = client.manager.getPlayer(interaction.guild.id);
+  } else {
+    return interaction.reply({
+      ephemeral: true,
+      embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription(t("common.noLavalink"))]
+    });
+  }
+  if (!player) {
+    return interaction.reply({
+      ephemeral: true,
+      embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription(t("common.noSongPlaying"))],
+      ephemeral: true
+    });
+  }
+  let trackNum = Number(track) - 1;
+  if (trackNum < 0 || trackNum > player.queue.tracks.length - 1) {
+    return interaction.reply(t("move.auto_157"));
+  }
+  let dest = Number(position) - 1;
+  if (dest < 0 || dest > player.queue.tracks.length - 1) {
+    return interaction.reply(t("move.auto_158"));
+  }
+  const thing = player.queue.tracks[trackNum];
+  player.queue.splice(trackNum, 1);
+  player.queue.splice(dest, 0, thing);
+  return interaction.reply({
+    ephemeral: true,
+    embeds: [new EmbedBuilder().setColor(client.config.embedColor).setDescription(t("player.moved"))]
+  });
+});
 module.exports = command;

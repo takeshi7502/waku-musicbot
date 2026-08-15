@@ -1,35 +1,49 @@
+﻿const { t } = require("../util/i18n");
 const Controller = require("../util/Controller");
-const yt = require("youtube-sr").default;
 
 /**
  *
  * @param {import("../lib/DiscordMusicBot")} client
- * @param {import("discord.js").Interaction}interaction
+ * @param {import("discord.js").Interaction} interaction
  */
 module.exports = async (client, interaction) => {
-    if (interaction.isCommand()) {
+    if (interaction.isChatInputCommand()) {
         let command = client.slashCommands.find(
             (x) => x.name == interaction.commandName,
         );
         if (!command || !command.run) {
             return interaction.reply(
-                "Sorry the command you used doesn't have any run function",
+                t("common.unknownCommand"),
             );
         }
+        if (command.adminOnly && interaction.user.id !== client.config.adminId) {
+            return interaction.reply({
+                content: t("common.noPermission"),
+                ephemeral: true,
+            });
+        }
+
         client.commandsRan++;
         command.run(client, interaction, interaction.options);
         return;
     }
 
-    if (interaction.isContextMenu()) {
+    if (interaction.isContextMenuCommand()) {
         let command = client.contextCommands.find(
             (x) => x.command.name == interaction.commandName,
         );
         if (!command || !command.run) {
             return interaction.reply(
-                "Sorry the command you used doesn't have any run function",
+                t("common.unknownContextCommand"),
             );
         }
+        if (command.adminOnly && interaction.user.id !== client.config.adminId) {
+            return interaction.reply({
+                content: t("common.noPermission"),
+                ephemeral: true,
+            });
+        }
+
         client.commandsRan++;
         command.run(client, interaction, interaction.options);
         return;
@@ -41,38 +55,44 @@ module.exports = async (client, interaction) => {
         }
     }
 
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId.startsWith("controller")) {
+            Controller(client, interaction);
+        }
+    }
+
     if (interaction.isAutocomplete()) {
-        const url = interaction.options.getString("query")
-        if (url === "") return;
+        const query = interaction.options.getString("query");
+        if (!query || query === "") return interaction.respond([]).catch(() => {});
 
-        const match = [
-            /^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube(-nocookie)?\.com|youtu.be))(\/(?:[\w\-]+\?v=|embed\/|v\/)?)([\w\-]+)(\S+)?$/,
-            /^(?:spotify:|https:\/\/[a-z]+\.spotify\.com\/(track\/|user\/(.*)\/playlist\/|playlist\/))(.*)$/,
-            /^https?:\/\/(?:www\.)?deezer\.com\/[a-z]+\/(track|album|playlist)\/(\d+)$/,
-            /^(?:(https?):\/\/)?(?:(?:www|m)\.)?(soundcloud\.com|snd\.sc)\/(.*)$/,
-            /(?:https:\/\/music\.apple\.com\/)(?:.+)?(artist|album|music-video|playlist)\/([\w\-\.]+(\/)+[\w\-\.]+|[^&]+)\/([\w\-\.]+(\/)+[\w\-\.]+|[^&]+)/
-        ].some(function (match) {
-            return match.test(url) == true;
-        });
+        if (interaction.commandName === "play") {
+            try {
+                // Check if it's a URL
+                const isUrl = /^https?:\/\//.test(query);
+                if (isUrl) {
+                    return interaction.respond([{ name: query, value: query }]).catch(() => {});
+                }
 
-        async function checkRegex() {
-            if (match == true) {
-                let choice = []
-                choice.push({ name: url, value: url })
-                await interaction.respond(choice).catch(() => { });
+                // Search using lavalink-client
+                const connectedNodes = [...client.manager.nodeManager.nodes.values()].filter(n => n.connected);
+                const node = connectedNodes.length > 0 ? connectedNodes[Math.floor(Math.random() * connectedNodes.length)] : undefined;
+                if (!node) return interaction.respond([]).catch(() => {});
+
+                const res = await node.search({ query, source: "youtube" }, interaction.user);
+                let choices = [];
+                if (res.loadType === "search" && res.tracks) {
+                    res.tracks.slice(0, 10).forEach((track) => {
+                        const name = `${track.info.title} by ${track.info.author}`;
+                        choices.push({
+                            name: name.length > 100 ? name.substring(0, 97) + "..." : name,
+                            value: track.info.uri,
+                        });
+                    });
+                }
+                return interaction.respond(choices).catch(() => {});
+            } catch (err) {
+                return interaction.respond([]).catch(() => {});
             }
         }
-
-        const Random = "ytsearch"[Math.floor(Math.random() * "ytsearch".length)];
-
-        if (interaction.commandName == "play") {
-            checkRegex()
-            let choice = []
-            await yt.search(url || Random, { safeSearch: false, limit: 25 }).then(result => {
-                result.forEach(x => { choice.push({ name: x.title, value: x.url }) })
-            });
-            return await interaction.respond(choice).catch(() => { });
-        } else if (result.loadType === "LOAD_FAILED" || "NO_MATCHES")
-            return;
     }
 };

@@ -1,83 +1,90 @@
-const { MessageEmbed } = require("discord.js");
-const escapeMarkdown = require('discord.js').Util.escapeMarkdown;
+const {
+  EmbedBuilder
+} = require("discord.js");
+const {
+  t
+} = require("../../util/i18n");
+const {
+  escapeMarkdown
+} = require('discord.js');
 const SlashCommand = require("../../lib/SlashCommand");
 const prettyMilliseconds = require("pretty-ms");
+const command = new SlashCommand().setName("nowplaying").setDescription(t("nowplaying.auto_159")).setRun(async (client, interaction, options) => {
+  let channel = await client.getChannel(client, interaction);
+  if (!channel) {
+    return;
+  }
+  let player;
+  if (client.manager) {
+    player = client.manager.getPlayer(interaction.guild.id);
+  } else {
+    return interaction.reply({
+      embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription(t("common.noLavalink"))]
+    });
+  }
+  if (!player) {
+    return interaction.reply({
+      embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription(t("player.notInChannel"))],
+      ephemeral: true
+    });
+  }
+  if (!player.playing) {
+    return interaction.reply({
+      embeds: [new EmbedBuilder().setColor(0xFF0000).setDescription(t("common.noSongPlaying"))],
+      ephemeral: true
+    });
+  }
+  const song = player.queue.current;
+  var title = escapeMarkdown(song.info.title);
+  var title = title.replace(/\]/g, "");
+  var title = title.replace(/\[/g, "");
 
-const command = new SlashCommand()
-	.setName("nowplaying")
-	.setDescription("Shows the song currently playing in the voice channel.")
-	.setRun(async (client, interaction, options) => {
-		let channel = await client.getChannel(client, interaction);
-		if (!channel) {
-			return;
-		}
-		
-		let player;
-		if (client.manager) {
-			player = client.manager.players.get(interaction.guild.id);
-		} else {
-			return interaction.reply({
-				embeds: [
-					new MessageEmbed()
-						.setColor("RED")
-						.setDescription("Lavalink node is not connected"),
-				],
-			});
-		}
-		
-		if (!player) {
-			return interaction.reply({
-				embeds: [
-					new MessageEmbed()
-						.setColor("RED")
-						.setDescription("The bot isn't in a channel."),
-				],
-				ephemeral: true,
-			});
-		}
-		
-		if (!player.playing) {
-			return interaction.reply({
-				embeds: [
-					new MessageEmbed()
-						.setColor("RED")
-						.setDescription("There's nothing playing."),
-				],
-				ephemeral: true,
-			});
-		}
-		
-		const song = player.queue.current;
-        var title = escapeMarkdown(song.title)
-        var title = title.replace(/\]/g,"")
-        var title = title.replace(/\[/g,"")
-		const embed = new MessageEmbed()
-			.setColor(client.config.embedColor)
-			.setAuthor({ name: "Now Playing", iconURL: client.config.iconURL })
-			// show who requested the song via setField, also show the duration of the song
-			.setFields([
-				{
-					name: "Requested by",
-					value: `<@${ song.requester.id }>`,
-					inline: true,
-				},
-				// show duration, if live show live
-				{
-					name: "Duration",
-					value: song.isStream
-						? `\`LIVE\``
-						: `\`${ prettyMilliseconds(player.position, {
-							secondsDecimalDigits: 0,
-						}) } / ${ prettyMilliseconds(song.duration, {
-							secondsDecimalDigits: 0,
-						}) }\``,
-					inline: true,
-				},
-			])
-			// show the thumbnail of the song using displayThumbnail("maxresdefault")
-			.setThumbnail(song.displayThumbnail("maxresdefault"))
-			// show the title of the song and link to it
-			.setDescription(`[${ title }](${ song.uri })`);
-		return interaction.reply({ embeds: [embed] });
-	});
+  const formatTime = (ms) => {
+    const s = Math.floor((ms / 1000) % 60).toString().padStart(2, "0");
+    const m = Math.floor((ms / 1000 / 60) % 60).toString().padStart(2, "0");
+    const h = Math.floor(ms / 1000 / 60 / 60).toString().padStart(2, "0");
+    return h === "00" ? `${m}:${s}` : `${h}:${m}:${s}`;
+  };
+
+  const embed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
+    name: t("player.nowPlaying"),
+    iconURL: client.config.iconURL
+  })
+  .setFields([{
+    name: t("player.requestedBy"),
+    value: `<@${song.requester.id || song.requester}>`,
+    inline: true
+  },
+  {
+    name: t("player.duration"),
+    value: song.info.isStream ? `\`LIVE\`` : `\`${formatTime(player.position)} / ${formatTime(song.info.duration)}\``,
+    inline: true
+  }])
+  .setThumbnail(song.info.artworkUrl)
+  .setDescription(`[${title}](${song.info.uri})` || t("player.noDescription"));
+
+  // Delete the old player interaction if it exists
+  const oldMsg = player.get("nowPlayingMessage");
+  if (oldMsg && !client.isMessageDeleted(oldMsg)) {
+    oldMsg.delete().catch(() => {});
+    client.markMessageAsDeleted(oldMsg);
+  }
+
+  // Assign the new text channel
+  player.set("textChannelId", interaction.channel.id);
+
+  const messagePayload = {
+    embeds: [embed],
+    components: client.createController(player.guildId, player),
+    fetchReply: true
+  };
+
+  // Reply with the new interactive player panel
+  const newMsg = await interaction.reply(messagePayload);
+  
+  // Register the new message to the background updater interval
+  if (newMsg) {
+    player.set("nowPlayingMessage", newMsg);
+  }
+});
 module.exports = command;

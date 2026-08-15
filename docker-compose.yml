@@ -1,27 +1,36 @@
-version: "3"
-
 services:
-  discord-musicbot:
+  discordmusicbot:
+    container_name: discordmusicbot
     build: .
-    image: discord-musicbot:latest
-    container_name: discord-musicbot
-    restart: unless-stopped
-    networks:
-      - lavalink-net
-    depends_on:
-      - lavalink
+    image: discordmusicbot:local
+    network_mode: host
+    restart: always
     volumes:
       - ./config.js:/usr/src/app/config.js:ro
+      - ./commands:/usr/src/app/commands
+      - ./lib:/usr/src/app/lib
+      - ./events:/usr/src/app/events
+      - ./util:/usr/src/app/util
+      - ./api:/usr/src/app/api
+      - ./index.js:/usr/src/app/index.js
+      - ./data:/usr/src/app/data
 
-  lavalink:
-    image: fredboat/lavalink:3.7.12
-    container_name: music-lavalink
-    hostname: lavalink
-    restart: unless-stopped
-    networks:
-      - lavalink-net
+  caddy:
+    image: caddy:2-alpine
+    container_name: musicbot-api-caddy
+    restart: always
+    depends_on:
+      - discordmusicbot
+    ports:
+      - "8075:80"
+      - "8443:443"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - ./docker/application.yml:/opt/Lavalink/application.yml:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
-networks:
-  lavalink-net:
+volumes:
+  caddy_data:
+  caddy_config:

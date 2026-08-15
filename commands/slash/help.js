@@ -1,135 +1,112 @@
+const { t } = require("../../util/i18n");
 const SlashCommand = require("../../lib/SlashCommand");
 const {
   Client,
   Interaction,
-  MessageActionRow,
-  MessageButton,
-  MessageEmbed,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder
 } = require("discord.js");
 const LoadCommands = require("../../util/loadCommands");
-const { filter } = require("lodash");
+const {
+  filter
+} = require("lodash");
+const command = new SlashCommand().setName("help").setDescription(t("help.auto_72")).setRun(async (client, interaction) => {
+  await interaction.deferReply().catch(_ => {});
+  // map the commands name and description to the embed
+  const commands = await LoadCommands().then(cmds => {
+    return [].concat(cmds.slash) /*.concat(cmds.context)*/;
+  });
+  // from commands remove the ones that have "null" in the description
+  // and hide admin-only commands from regular users
+  const filteredCommands = commands.filter(cmd => cmd.description != "null" && !cmd.adminOnly);
+  const totalCmds = filteredCommands.length;
+  let maxPages = Math.ceil(totalCmds / client.config.helpCmdPerPage);
 
-const command = new SlashCommand()
-  .setName("help")
-  .setDescription("Shows this list")
-  .setRun(async (client, interaction) => {
-    await interaction.deferReply().catch((_) => {});
-    // map the commands name and description to the embed
-    const commands = await LoadCommands().then((cmds) => {
-      return [].concat(cmds.slash) /*.concat(cmds.context)*/;
+  // if git exists, then get commit hash
+  let gitHash = "";
+  try {
+    gitHash = require("child_process").execSync("git rev-parse --short HEAD").toString().trim();
+  } catch (e) {
+    gitHash = "unknown";
+  }
+
+  // default Page No.
+  let pageNo = 0;
+  const helpEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
+    name: t("help.auto_73", {
+      var1: client.user.username
+    }),
+    iconURL: client.config.iconURL
+  }).setTimestamp().setFooter({
+    text: `Trang ${pageNo + 1} / ${maxPages}`
+  });
+
+  // initial temporary array
+  var tempArray = filteredCommands.slice(pageNo * client.config.helpCmdPerPage, pageNo * client.config.helpCmdPerPage + client.config.helpCmdPerPage);
+  tempArray.forEach(cmd => {
+    helpEmbed.addFields({
+      name: `\`/${cmd.name}\``,
+      value: cmd.description
     });
-    // from commands remove the ones that have "null" in the description
-    const filteredCommands = commands.filter(
-      (cmd) => cmd.description != "null"
-    );
-    //console.log(filteredCommands);
-    const totalCmds = filteredCommands.length;
-    let maxPages = Math.ceil(totalCmds / client.config.helpCmdPerPage);
+  });
+  helpEmbed.addFields({
+    name: "Credits",
+    value: t("help.auto_74", {
+      var1: require("../../package.json").version,
+      var2: gitHash
+    }) + "\n" + `[✨ Discord Server](${client.config.supportServer}) | [Website](https://card.takeshi.dev) | [Source Mod](https://github.com/takeshi7502/Discord-MusicBot) | [Source](${client.config.Issues})`
+  });
 
-    // if git exists, then get commit hash
-    let gitHash = "";
-    try {
-      gitHash = require("child_process")
-        .execSync("git rev-parse --short HEAD")
-        .toString()
-        .trim();
-    } catch (e) {
-      // do nothing
-      gitHash = "unknown";
+  // Construction of the buttons for the embed
+  const getButtons = pageNo => {
+    return new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("help_cmd_but_2_app").setEmoji("◀️").setStyle(ButtonStyle.Primary).setDisabled(pageNo == 0), new ButtonBuilder().setCustomId("help_cmd_but_1_app").setEmoji("▶️").setStyle(ButtonStyle.Primary).setDisabled(pageNo == maxPages - 1), new ButtonBuilder().setCustomId("help_cmd_but_close_app").setEmoji("❌").setStyle(ButtonStyle.Secondary));
+  };
+  const tempMsg = await interaction.editReply({
+    embeds: [helpEmbed],
+    components: [getButtons(pageNo)],
+    fetchReply: true
+  });
+  const collector = tempMsg.createMessageComponentCollector({
+    time: 600000
+  });
+  collector.on("collect", async iter => {
+    if (iter.customId === "help_cmd_but_close_app") {
+      collector.stop();
+      await iter.deferUpdate().catch(() => {});
+      await interaction.deleteReply().catch(() => {});
+      return;
     }
-
-    // default Page No.
-    let pageNo = 0;
-
-    const helpEmbed = new MessageEmbed()
-      .setColor(client.config.embedColor)
-      .setAuthor({
-        name: `Commands of ${client.user.username}`,
-        iconURL: client.config.iconURL,
-      })
-      .setTimestamp()
-      .setFooter({ text: `Page ${pageNo + 1} / ${maxPages}` });
-
-    // initial temporary array
-    var tempArray = filteredCommands.slice(
-      pageNo * client.config.helpCmdPerPage,
-      pageNo * client.config.helpCmdPerPage + client.config.helpCmdPerPage
-    );
-
-    tempArray.forEach((cmd) => {
-      helpEmbed.addFields({ name: cmd.name, value: cmd.description });
+    if (iter.customId === "help_cmd_but_1_app") {
+      pageNo++;
+    } else if (iter.customId === "help_cmd_but_2_app") {
+      pageNo--;
+    }
+    helpEmbed.data.fields = [];
+    var tempArray = filteredCommands.slice(pageNo * client.config.helpCmdPerPage, pageNo * client.config.helpCmdPerPage + client.config.helpCmdPerPage);
+    tempArray.forEach(cmd => {
+      helpEmbed.addFields({
+        name: `\`/${cmd.name}\``,
+        value: cmd.description
+      }).setFooter({
+        text: `Trang ${pageNo + 1} / ${maxPages}`
+      });
     });
     helpEmbed.addFields({
       name: "Credits",
-      value:
-        `Discord Music Bot Version: v${
-          require("../../package.json").version
-        }; Build: ${gitHash}` +
-        "\n" +
-        `[✨ Support Server](${client.config.supportServer}) | [Issues](${client.config.Issues}) | [Source](https://github.com/SudhanPlayz/Discord-MusicBot/tree/v5) | [Invite Me](https://discord.com/oauth2/authorize?client_id=${client.config.clientId}&permissions=${client.config.permissions}&scope=bot%20applications.commands)`,
+      value: t("help.auto_75", {
+        var1: require("../../package.json").version,
+        var2: gitHash
+      }) + "\n" + `[✨ Discord Server](${client.config.supportServer}) | [Website](https://card.takeshi.dev) | [Source Mod](https://github.com/takeshi7502/Discord-MusicBot) | [Source](${client.config.Issues})`
     });
-
-    // Construction of the buttons for the embed
-    const getButtons = (pageNo) => {
-      return new MessageActionRow().addComponents(
-        new MessageButton()
-          .setCustomId("help_cmd_but_2_app")
-          .setEmoji("◀️")
-          .setStyle("PRIMARY")
-          .setDisabled(pageNo == 0),
-        new MessageButton()
-          .setCustomId("help_cmd_but_1_app")
-          .setEmoji("▶️")
-          .setStyle("PRIMARY")
-          .setDisabled(pageNo == maxPages - 1)
-      );
-    };
-
-    const tempMsg = await interaction.editReply({
+    await iter.update({
       embeds: [helpEmbed],
-      components: [getButtons(pageNo)],
-      fetchReply: true,
-    });
-    const collector = tempMsg.createMessageComponentCollector({
-      time: 600000,
-      componentType: "BUTTON",
-    });
-
-    collector.on("collect", async (iter) => {
-      if (iter.customId === "help_cmd_but_1_app") {
-        pageNo++;
-      } else if (iter.customId === "help_cmd_but_2_app") {
-        pageNo--;
-      }
-
-      helpEmbed.fields = [];
-
-      var tempArray = filteredCommands.slice(
-        pageNo * client.config.helpCmdPerPage,
-        pageNo * client.config.helpCmdPerPage + client.config.helpCmdPerPage
-      );
-
-      tempArray.forEach((cmd) => {
-        //console.log(cmd);
-        helpEmbed
-          .addFields({ name: cmd.name, value: cmd.description })
-          .setFooter({ text: `Page ${pageNo + 1} / ${maxPages}` });
-      });
-      helpEmbed.addFields({
-        name: "Credits",
-        value:
-          `Discord Music Bot Version: v${
-            require("../../package.json").version
-          }; Build: ${gitHash}` +
-          "\n" +
-          `[✨ Support Server](${client.config.supportServer}) | [Issues](${client.config.Issues}) | [Source](https://github.com/SudhanPlayz/Discord-MusicBot/tree/v5) | [Invite Me](https://discord.com/oauth2/authorize?client_id=${client.config.clientId}&permissions=${client.config.permissions}&scope=bot%20applications.commands)`,
-      });
-      await iter.update({
-        embeds: [helpEmbed],
-        components: [getButtons(pageNo)],
-        fetchReply: true,
-      });
-    });
+      components: [getButtons(pageNo)]
+    }).catch(() => {});
   });
-
+  collector.on("end", () => {
+    interaction.deleteReply().catch(() => {});
+  });
+});
 module.exports = command;
