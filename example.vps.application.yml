@@ -91,19 +91,21 @@ plugins:
       - "WEBEMBEDDED"
       - "TVHTML5_SIMPLY" # Thay thế TVHTML5EMBEDDED đã bị khai tử
 
-    # Tinh chỉnh hành vi của từng Client
-    WEB:
-      playback: true
-      videoLoading: true
-      searching: true
-    MUSIC:
-      playback: false
-      videoLoading: false
-      searching: true
-    TVHTML5_SIMPLY:
-      playback: true
-      videoLoading: false
-      searching: false
+    # Tinh chỉnh hành vi của từng Client.
+    # Các cấu hình này phải nằm trong clientOptions để youtube-source áp dụng.
+    clientOptions:
+      WEB:
+        playback: true
+        videoLoading: true
+        searching: true
+      MUSIC:
+        playback: false
+        videoLoading: false
+        searching: true
+      TVHTML5_SIMPLY:
+        playback: true
+        videoLoading: false
+        searching: false
 
 metrics:
   prometheus:
@@ -127,7 +129,7 @@ logging:
   request:
     enabled: true
     includeClientInfo: true
-    includeHeaders: true
+    includeHeaders: false
     includeQueryString: true
     includePayload: true
     maxPayloadLength: 10000
