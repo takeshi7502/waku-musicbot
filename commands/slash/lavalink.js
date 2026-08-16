@@ -9,30 +9,6 @@ const path = require("path");
 const fs = require("fs");
 const MAX_NODES = 10;
 
-// ====== HELPER: Ghi nodes vào config.js ======
-function writeNodesToConfig(nodes) {
-  const configPath = path.resolve(__dirname, "..", "..", "config.js");
-  let content = fs.readFileSync(configPath, "utf8");
-
-  // Build nodes string
-  const nodesStr = nodes.map((n, i) => {
-    return `\t\t{
-\t\t\tid: "${n.id}",
-\t\t\thost: "${n.host}",
-\t\t\tport: ${n.port},
-\t\t\tauthorization: "${n.authorization}",
-\t\t\tretryAmount: ${n.retryAmount || 200},
-\t\t\tretryDelay: ${n.retryDelay || 40},
-\t\t\tsecure: ${n.secure || false},
-\t\t\trequestTimeout: ${n.requestTimeout || 60000},
-\t\t}`;
-  }).join(",\n");
-
-  // Replace nodes array in config
-  content = content.replace(/nodes:\s*\[[\s\S]*?\n\t\],/, `nodes: [\n${nodesStr},\n\t],`);
-  fs.writeFileSync(configPath, content, "utf8");
-}
-
 // ====== HELPER: Tìm slot ID trống nhỏ nhất ======
 function findNextNodeId(existingNodes) {
   for (let i = 1; i < MAX_NODES; i++) {
@@ -107,7 +83,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
   // ACTION: LIST
   // ================================================================
   if (action === "list") {
-    const configNodes = client.config.nodes || [];
+    const configNodes = [...(client.config.nodes || [])];
     const liveNodes = client.manager.nodeManager.nodes;
     if (configNodes.length === 0) {
       return interaction.editReply({
@@ -184,7 +160,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
         if (btn.customId === "lavalink_test_add") {
           collector.stop("added");
           await btn.deferUpdate();
-          const configNodes = client.config.nodes || [];
+          const configNodes = [...(client.config.nodes || [])];
           if (configNodes.length >= MAX_NODES) {
             return interaction.editReply({
               embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.maxNodes", {
@@ -219,8 +195,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
           };
           configNodes.push(newNodeConfig);
           try {
-            writeNodesToConfig(configNodes);
-            client.config.nodes = configNodes;
+            await client.saveLavalinkNodes(configNodes);
             client.manager.options.nodes = configNodes;
             client.manager.nodeManager.createNode(newNodeConfig);
             await client.manager.nodeManager.connectAll();
@@ -284,7 +259,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
         embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.requiredFields"))]
       });
     }
-    const configNodes = client.config.nodes || [];
+    const configNodes = [...(client.config.nodes || [])];
 
     // Kiểm tra giới hạn
     if (configNodes.length >= MAX_NODES) {
@@ -342,11 +317,8 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
     };
     configNodes.push(newNodeConfig);
     try {
-      // Ghi file config
-      writeNodesToConfig(configNodes);
-
-      // Cập nhật runtime config
-      client.config.nodes = configNodes;
+      // Lưu cấu hình chạy được vào database (config.js trong Docker là chỉ đọc).
+      await client.saveLavalinkNodes(configNodes);
       client.manager.options.nodes = configNodes;
 
       // Tạo + kết nối node mới
@@ -395,7 +367,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
         embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.cannotRemoveNode0"))]
       });
     }
-    const configNodes = client.config.nodes || [];
+    const configNodes = [...(client.config.nodes || [])];
     const nodeIndex = configNodes.findIndex(n => n.id.toLowerCase() === idnode);
     if (nodeIndex === -1) {
       const available = configNodes.map(n => `\`${n.id}\``).join(", ");
@@ -436,8 +408,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
 
       // Xoá khỏi config
       configNodes.splice(nodeIndex, 1);
-      writeNodesToConfig(configNodes);
-      client.config.nodes = configNodes;
+      await client.saveLavalinkNodes(configNodes);
       client.manager.options.nodes = configNodes;
 
       // Xoá cờ thông báo
@@ -486,7 +457,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
         embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.requiredFieldsReplace"))]
       });
     }
-    const configNodes = client.config.nodes || [];
+    const configNodes = [...(client.config.nodes || [])];
     const nodeIndex = configNodes.findIndex(n => n.id.toLowerCase() === idnode);
     if (nodeIndex === -1) {
       const available = configNodes.map(n => `\`${n.id}\``).join(", ");
@@ -557,8 +528,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
         requestTimeout: 60000
       };
       configNodes[nodeIndex] = newNodeConfig;
-      writeNodesToConfig(configNodes);
-      client.config.nodes = configNodes;
+      await client.saveLavalinkNodes(configNodes);
       client.manager.options.nodes = configNodes;
 
       // Tạo + kết nối node mới
@@ -607,7 +577,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
     client.isLavalinkReloading = true;
     try {
       const configPath = path.resolve(__dirname, "..", "..", "config.js");
-      const devConfigPath = path.resolve(__dirname, "..", "..", "config.dev.js");
+      const devConfigPath = path.resolve(__dirname, "..", "..", "dev-config.js");
       let newConfig;
       if (fs.existsSync(devConfigPath)) {
         delete require.cache[require.resolve(devConfigPath)];
@@ -615,6 +585,13 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
       } else {
         delete require.cache[require.resolve(configPath)];
         newConfig = require(configPath);
+      }
+      const persistedNodes = await client.getPersistedLavalinkNodes();
+      if (persistedNodes !== null) {
+        newConfig = {
+          ...newConfig,
+          nodes: persistedNodes
+        };
       }
       const oldNodes = client.config.nodes || [];
       const newNodes = newConfig.nodes || [];

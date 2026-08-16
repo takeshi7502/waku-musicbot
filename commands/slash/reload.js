@@ -62,6 +62,7 @@ const command = new SlashCommand().setName("reload").setDescription(t("reload.au
 
     // Cập nhật config mới vào client (có sanitize màu và iconURL)
     client.config = sanitizeConfig(newConfig);
+    await client.applyPersistedRuntimeConfig();
     reloadLog.push(t("reload.auto_191"));
 
     // ======== BƯỚC 4: TẢI LẠI EVENTS ========

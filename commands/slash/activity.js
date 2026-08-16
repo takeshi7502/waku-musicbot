@@ -10,8 +10,6 @@ const {
   TextInputBuilder,
   TextInputStyle
 } = require("discord.js");
-const fs = require("fs");
-const path = require("path");
 const { t } = require("../../util/i18n");
 const SlashCommand = require("../../lib/SlashCommand");
 
@@ -95,17 +93,8 @@ function buildPresence(type, text, status) {
   };
 }
 
-function persistPresence(client, presence) {
-  client.config.presence = presence;
-  const configPath = path.join(__dirname, "..", "..", "config.js");
-  const configCode = fs.readFileSync(configPath, "utf8");
-  const replacement = `presence: ${JSON.stringify(presence, null, "\t").replace(/\n/g, "\n\t")},`;
-  const nextConfigCode = configCode.replace(/presence:\s*{[\s\S]*?\n\t},\r?\n\ticonURL:/, `${replacement}\n\ticonURL:`);
-  fs.writeFileSync(configPath, nextConfigCode);
-}
-
 async function applyPresence(client, presence) {
-  persistPresence(client, presence);
+  await client.saveBotPresence(presence);
   await client.user.setPresence(presence);
 }
 
