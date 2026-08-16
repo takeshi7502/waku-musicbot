@@ -121,8 +121,7 @@
   },
   "guild": {
     "welcomeAuthor": "{botName} xin chào!",
-    "welcomeTitle": "Ehe! Chào mn nha...",
-    "welcomeDesc": "1. Bot chức năng chính là nghe nhạc.\n*Bạn dùng `/help` để xem các lệnh!*\n2. Tính năng phụ là chatbotAI.\n*Dùng `!config` để quản lý chatbotAI!*\n\n**Bạn Admin Server gõ lệnh sau để chỉ định kênh nhận tin nhé:**\n👉 Gõ lệnh: `/setup`",
+    "welcomeDesc": "1. Bot chức năng chính là nghe nhạc.\n*Bạn dùng `/help` để xem các lệnh!*\n2. Tính năng phụ là chatbotAI.\n*Dùng `!config` để quản lý chatbotAI!*\n\n**Bạn admin gõ lệnh `/setup` để set kênh nhận tin nhé.**",
     "joinedLog": "🚀 BOT VỪA CẬP BẾN MÁY CHỦ MỚI!",
     "leftLog": "📤 BOT ĐÃ RỜI MÁY CHỦ",
     "serverName": "Tên Server",

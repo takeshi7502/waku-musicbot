@@ -121,8 +121,7 @@
   },
   "guild": {
     "welcomeAuthor": "Thanks for using the Bot!",
-    "welcomeTitle": "👋 Hello!",
-    "welcomeDesc": "Hello everyone! {botName} is a free Music Bot with full features, no ads, no charges, no time limits.\n*Thank you for using the Bot. Type `/help` to explore commands!*\n\n**Server Admins, use this command to set the notification channel:**\n👉 Type: `/setup`",
+    "welcomeDesc": "Hello everyone! {botName} is a free Music Bot with full features, no ads, no charges, no time limits.\n*Thank you for using the Bot. Type `/help` to explore commands!*\n\n**Server admins, type `/setup` to set the notification channel.**",
     "joinedLog": "🚀 BOT JUST JOINED A NEW SERVER!",
     "leftLog": "📤 BOT HAS LEFT A SERVER",
     "serverName": "Server Name",

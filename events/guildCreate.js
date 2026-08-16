@@ -57,10 +57,10 @@ module.exports = async (client, guild) => {
     // ----------------------------------------------------
     const targetChannel = guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.permissionsFor(guild.members.me).has("SendMessages") && c.permissionsFor(guild.members.me).has("ViewChannel"));
     if (targetChannel) {
+      const botName = client.user.username;
       const welcomeEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-        name: t("guildCreate.auto_267"),
-        iconURL: client.config.iconURL || client.user.displayAvatarURL()
-      }).setTitle(t("guildCreate.auto_268")).setDescription(t("guildCreate.auto_269") + t("guildCreate.auto_270") + t("guildCreate.auto_271") + t("guildCreate.auto_272")).setThumbnail(client.user.displayAvatarURL()).setTimestamp();
+        name: t("guild.welcomeAuthor", { botName })
+      }).setDescription(t("guild.welcomeDesc", { botName })).setThumbnail(client.user.displayAvatarURL()).setTimestamp();
       await targetChannel.send({
         embeds: [welcomeEmbed]
       }).catch(() => {});
