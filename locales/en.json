@@ -29,7 +29,7 @@
     "nowPlaying": "Now Playing",
     "requestedBy": "Requested by",
     "duration": "Duration",
-    "playbackDetails": "Loop: {loop} • Auto add: {autoQueue} • Volume: {volume}%",
+    "playbackDetails": "Loop: {loop} • AutoQueue: {autoQueue} • Volume: {volume}%",
     "loopTrack": "Track",
     "loopQueue": "Queue",
     "noDescription": "No description",
@@ -369,6 +369,13 @@
     "auto_237": "Get information about bots",
     "auto_238": "{var1} Information",
     "auto_239": "• **Playing**: {var1} room • **Connecting**: {var2} room"
+  },
+  "lang": {
+    "description": "Change this server's display language",
+    "option": "Language to use",
+    "noPermission": "You need the `Manage Server` permission to change the language.",
+    "saveError": "The server language could not be saved right now. Please try again later.",
+    "changed": "✅ This server's display language has been changed to **{language}**."
   },
   "lavalink": {
     "noPermission": "You don't have permission to use this command!",

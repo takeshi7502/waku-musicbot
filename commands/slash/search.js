@@ -88,7 +88,7 @@ const command = new SlashCommand().setName("search").setDescription(t("search.au
       filter,
       time: 30000
     });
-    tracksCollector.on("collect", async i => {
+    tracksCollector.on("collect", async i => client.runWithGuildLanguage(interaction.guildId, async () => {
       if (i.isStringSelectMenu()) {
         await i.deferUpdate();
         let uriFromCollector = i.values[0];
@@ -121,8 +121,8 @@ const command = new SlashCommand().setName("search").setDescription(t("search.au
           components: []
         });
       }
-    });
-    tracksCollector.on("end", async i => {
+    }));
+    tracksCollector.on("end", async i => client.runWithGuildLanguage(interaction.guildId, async () => {
       if (i.size == 0) {
         choosenTracks.edit({
           content: null,
@@ -130,7 +130,7 @@ const command = new SlashCommand().setName("search").setDescription(t("search.au
           components: []
         });
       }
-    });
+    }));
   }
 });
 module.exports = command;

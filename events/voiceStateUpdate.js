@@ -23,8 +23,9 @@ async function deleteNowPlayingMsg(client, player) {
  * @returns {Promise<void>}
  */
 module.exports = async (client, oldState, newState) => {
+  const guildId = newState.guild.id;
+  return client.withGuildLanguage(guildId, async () => {
   // get guild and player
-  let guildId = newState.guild.id;
   const player = client.manager.getPlayer(guildId);
 
   // check if the bot is active (playing, paused or empty does not matter (return otherwise)
@@ -220,4 +221,5 @@ module.exports = async (client, oldState, newState) => {
       }
       break;
   }
+  });
 };

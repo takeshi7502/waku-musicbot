@@ -3,7 +3,9 @@ const {
   EmbedBuilder
 } = require("discord.js");
 const {
-  t
+  t,
+  translate,
+  DEFAULT_LANGUAGE
 } = require("../../util/i18n");
 const {
   refreshNowPlayingPanel
@@ -46,7 +48,7 @@ const command = new SlashCommand().setName("autoqueue").setDescription(t("autoqu
       var1: !autoQueue ? t("common.willNow") : t("common.willNoLonger")
     })
   });
-  client.warn(t("autoqueue.auto_20", {
+  client.warn(translate(DEFAULT_LANGUAGE, "autoqueue.auto_20", {
     var1: player.guildId,
     var2: colors.blue("AUTOQUEUE"),
     var3: colors.blue(!autoQueue ? t("common.on") : t("common.off")),

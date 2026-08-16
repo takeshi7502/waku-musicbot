@@ -192,7 +192,7 @@ const command = new SlashCommand().setName("queue").setDescription(t("queue.auto
           return true;
         } else {
           return b.reply({
-            content: t("player.onlyUserCanUse", {
+            content: client.translateGuild(interaction.guildId, "player.onlyUserCanUse", {
               user: interaction.user.tag
             }),
             ephemeral: true
@@ -202,7 +202,7 @@ const command = new SlashCommand().setName("queue").setDescription(t("queue.auto
       time: 60000 * 10,
       idle: 30e3
     });
-    collector.on("collect", async button => {
+    collector.on("collect", async button => client.runWithGuildLanguage(interaction.guildId, async () => {
       if (button.customId === "queue_cmd_but_close_app") {
         collector.stop();
         await button.deferUpdate().catch(() => {});
@@ -285,7 +285,7 @@ const command = new SlashCommand().setName("queue").setDescription(t("queue.auto
           components: [new ActionRowBuilder().addComponents(buttonTwo, buttonOne, buttonClose)]
         }).catch(() => {});
       }
-    });
+    }));
     collector.on("end", () => {
       interaction.deleteReply().catch(() => {});
     });

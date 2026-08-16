@@ -5,7 +5,7 @@ const {
   ActionRowBuilder,
   ButtonStyle
 } = require("discord.js");
-module.exports = async (client, message) => {
+async function respondToMention(client, message) {
   const refront = `^<@!?${client.user.id}>`;
   const mention = new RegExp(refront + "$");
   const invite = `https://discord.com/oauth2/authorize?client_id=${client.config.clientId}&permissions=${client.config.permissions}&scope=bot%20applications.commands`;
@@ -17,4 +17,9 @@ module.exports = async (client, message) => {
       components: [buttons]
     });
   }
+}
+
+module.exports = async (client, message) => {
+  if (!message.guildId) return respondToMention(client, message);
+  return client.withGuildLanguage(message.guildId, () => respondToMention(client, message));
 };

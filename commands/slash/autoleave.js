@@ -3,7 +3,9 @@ const {
   EmbedBuilder
 } = require("discord.js");
 const {
-  t
+  t,
+  translate,
+  DEFAULT_LANGUAGE
 } = require("../../util/i18n");
 const SlashCommand = require("../../lib/SlashCommand");
 const command = new SlashCommand().setName("autoleave").setDescription(t("autoleave.auto_6")).setRun(async (client, interaction) => {
@@ -36,7 +38,7 @@ const command = new SlashCommand().setName("autoleave").setDescription(t("autole
       var1: !autoLeave ? "tự động" : "không tự động"
     })
   });
-  client.warn(t("autoleave.auto_10", {
+  client.warn(translate(DEFAULT_LANGUAGE, "autoleave.auto_10", {
     var1: player.guildId,
     var2: colors.blue("autoLeave"),
     var3: colors.blue(!autoLeave ? t("common.on") : t("common.off")),

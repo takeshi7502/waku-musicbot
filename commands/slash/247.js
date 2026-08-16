@@ -3,7 +3,9 @@ const {
   EmbedBuilder
 } = require("discord.js");
 const {
-  t
+  t,
+  translate,
+  DEFAULT_LANGUAGE
 } = require("../../util/i18n");
 const SlashCommand = require("../../lib/SlashCommand");
 const command = new SlashCommand().setName("247").setDescription(t("247.auto_1")).setRun(async (client, interaction, options) => {
@@ -41,7 +43,7 @@ const command = new SlashCommand().setName("247").setDescription(t("247.auto_1")
       var1: !twentyFourSeven ? t("common.willNow") : t("common.willNoLonger")
     })
   });
-  client.warn(t("247.auto_5", {
+  client.warn(translate(DEFAULT_LANGUAGE, "247.auto_5", {
     var1: player.guildId,
     var2: colors.blue("24/7"),
     var3: colors.blue(!twentyFourSeven ? t("common.on") : t("common.off")),

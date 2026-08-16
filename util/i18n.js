@@ -1,7 +1,15 @@
 const fs = require("fs");
 const path = require("path");
+const { AsyncLocalStorage } = require("async_hooks");
 const localesDir = path.join(__dirname, "..", "locales");
 const locales = {};
+const languageContext = new AsyncLocalStorage();
+const DEFAULT_LANGUAGE = "vi";
+const languageNames = {
+  vi: "Tiếng Việt",
+  en: "English",
+  ja: "日本語"
+};
 
 // Load tất cả file .json trong locales/
 function loadLocales() {
@@ -18,7 +26,11 @@ function loadLocales() {
 
 // Load lần đầu
 loadLocales();
-let currentLang = "vi";
+let currentLang = DEFAULT_LANGUAGE;
+
+function normalizeLanguage(lang) {
+  return typeof lang === "string" && locales[lang] ? lang : DEFAULT_LANGUAGE;
+}
 
 /**
  * Đặt ngôn ngữ hiện tại
@@ -35,6 +47,16 @@ function setLanguage(lang) {
 /**
  * Tải lại file ngôn ngữ (dùng khi /cmd reload)
  */
+function runWithLanguage(language, callback) {
+  return languageContext.run({
+    language: normalizeLanguage(language)
+  }, callback);
+}
+
+function translate(language, key, vars = {}) {
+  return runWithLanguage(language, () => t(key, vars));
+}
+
 function reloadLocales() {
   // Xoá cache cũ
   Object.keys(locales).forEach(k => delete locales[k]);
@@ -48,14 +70,15 @@ function reloadLocales() {
  * @returns {string}
  */
 function t(key, vars = {}) {
+  const language = languageContext.getStore()?.language || currentLang;
   const keys = key.split(".");
 
   // Tìm trong ngôn ngữ hiện tại
-  let text = keys.reduce((obj, k) => obj?.[k], locales[currentLang]);
+  let text = keys.reduce((obj, k) => obj?.[k], locales[language]);
 
   // Fallback về tiếng Việt nếu không tìm thấy
   if (text === undefined || text === null) {
-    text = keys.reduce((obj, k) => obj?.[k], locales["vi"]);
+    text = keys.reduce((obj, k) => obj?.[k], locales[DEFAULT_LANGUAGE]);
   }
 
   // Nếu vẫn không có, trả về key gốc (để dễ debug)
@@ -78,12 +101,22 @@ function getAvailableLanguages() {
  * @returns {string}
  */
 function getCurrentLanguage() {
-  return currentLang;
+  return languageContext.getStore()?.language || currentLang;
+}
+
+function getLanguageName(language) {
+  const normalized = normalizeLanguage(language);
+  return languageNames[normalized] || normalized;
 }
 module.exports = {
   t,
+  translate,
+  runWithLanguage,
   setLanguage,
   reloadLocales,
   getAvailableLanguages,
-  getCurrentLanguage
+  getCurrentLanguage,
+  getLanguageName,
+  normalizeLanguage,
+  DEFAULT_LANGUAGE
 };

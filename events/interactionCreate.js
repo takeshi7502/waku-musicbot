@@ -12,9 +12,9 @@ module.exports = async (client, interaction) => {
             (x) => x.name == interaction.commandName,
         );
         if (!command || !command.run) {
-            return interaction.reply(
+            return client.withGuildLanguage(interaction.guildId, () => interaction.reply(
                 t("common.unknownCommand"),
-            );
+            ));
         }
         if (command.adminOnly && interaction.user.id !== client.config.adminId) {
             return interaction.reply({
@@ -24,8 +24,10 @@ module.exports = async (client, interaction) => {
         }
 
         client.commandsRan++;
-        command.run(client, interaction, interaction.options);
-        return;
+        if (command.adminOnly) {
+            return command.run(client, interaction, interaction.options);
+        }
+        return client.withGuildLanguage(interaction.guildId, () => command.run(client, interaction, interaction.options));
     }
 
     if (interaction.isContextMenuCommand()) {
@@ -33,9 +35,9 @@ module.exports = async (client, interaction) => {
             (x) => x.command.name == interaction.commandName,
         );
         if (!command || !command.run) {
-            return interaction.reply(
+            return client.withGuildLanguage(interaction.guildId, () => interaction.reply(
                 t("common.unknownContextCommand"),
-            );
+            ));
         }
         if (command.adminOnly && interaction.user.id !== client.config.adminId) {
             return interaction.reply({
@@ -45,19 +47,21 @@ module.exports = async (client, interaction) => {
         }
 
         client.commandsRan++;
-        command.run(client, interaction, interaction.options);
-        return;
+        if (command.adminOnly) {
+            return command.run(client, interaction, interaction.options);
+        }
+        return client.withGuildLanguage(interaction.guildId, () => command.run(client, interaction, interaction.options));
     }
 
     if (interaction.isButton()) {
         if (interaction.customId.startsWith("controller")) {
-            Controller(client, interaction);
+            return client.withGuildLanguage(interaction.guildId, () => Controller(client, interaction));
         }
     }
 
     if (interaction.isStringSelectMenu()) {
         if (interaction.customId.startsWith("controller")) {
-            Controller(client, interaction);
+            return client.withGuildLanguage(interaction.guildId, () => Controller(client, interaction));
         }
     }
 

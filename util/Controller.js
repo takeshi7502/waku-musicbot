@@ -2,7 +2,9 @@ const {
   EmbedBuilder
 } = require("discord.js");
 const {
-  t
+  t,
+  translate,
+  DEFAULT_LANGUAGE
 } = require("./i18n");
 const {
   buildNowPlayingEmbed,
@@ -60,7 +62,7 @@ module.exports = async (client, interaction) => {
     player.set("autoQueue", false);
     player.set("stoppedByUser", true);
     player.stopPlaying(false, false);
-    client.warn(t("Controller.auto_290", {
+    client.warn(translate(DEFAULT_LANGUAGE, "Controller.auto_290", {
       var1: player.guildId
     }));
     return;
@@ -105,7 +107,7 @@ module.exports = async (client, interaction) => {
       } else {
         player.pause();
       }
-      client.warn(t("Controller.auto_292", {
+    client.warn(translate(DEFAULT_LANGUAGE, "Controller.auto_292", {
         var1: player.guildId,
         var2: player.paused ? "Tạm dừng" : "Tiếp tục"
       }));
@@ -140,7 +142,7 @@ module.exports = async (client, interaction) => {
     } else {
       player.setRepeatMode("track");
     }
-    client.warn(t("Controller.auto_293", {
+    client.warn(translate(DEFAULT_LANGUAGE, "Controller.auto_293", {
       var1: player.guildId,
       var2: player.repeatMode === "track" ? "bài hát" : player.repeatMode === "queue" ? "hàng đợi" : "tất cả"
     }));

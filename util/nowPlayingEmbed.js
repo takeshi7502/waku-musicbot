@@ -1,5 +1,5 @@
 const { escapeMarkdown } = require("discord.js");
-const { t } = require("./i18n");
+const { translate } = require("./i18n");
 
 const PROGRESS_SEGMENTS = 12;
 const CODE_TICK = String.fromCharCode(96);
@@ -20,8 +20,12 @@ function buildProgressBar(position, duration) {
   return "▰".repeat(completed) + "▱".repeat(PROGRESS_SEGMENTS - completed);
 }
 
+function translateForPlayer(client, player, key, vars = {}) {
+  return translate(client.guildLanguages?.get(player.guildId) || "vi", key, vars);
+}
+
 function buildNowPlayingEmbed(client, player, track) {
-  const title = escapeMarkdown(track.info.title || t("player.noDescription"))
+  const title = escapeMarkdown(track.info.title || translateForPlayer(client, player, "player.noDescription"))
     .replace(/\]/g, "")
     .replace(/\[/g, "");
   const requester = track.requester?.id || track.requester || client.user.id;
@@ -29,11 +33,11 @@ function buildNowPlayingEmbed(client, player, track) {
   const totalDuration = isStream ? "LIVE" : formatTime(track.info.duration);
   const playbackIcon = player.paused ? "⏸️" : "▶️";
   const loopMode = player.repeatMode === "track"
-    ? t("player.loopTrack")
+    ? translateForPlayer(client, player, "player.loopTrack")
     : player.repeatMode === "queue"
-      ? t("player.loopQueue")
+      ? translateForPlayer(client, player, "player.loopQueue")
       : "Off";
-  const playbackDetails = t("player.playbackDetails", {
+  const playbackDetails = translateForPlayer(client, player, "player.playbackDetails", {
     loop: loopMode,
     autoQueue: player.get("autoQueue") ? "ON" : "Off",
     volume: player.volume
@@ -47,16 +51,16 @@ function buildNowPlayingEmbed(client, player, track) {
 
   const embed = client.Embed()
     .setAuthor({
-      name: t("player.nowPlaying"),
+      name: translateForPlayer(client, player, "player.nowPlaying"),
       iconURL: client.config.iconURL
     })
     .setDescription(description)
     .addFields({
-      name: t("player.requestedBy"),
+      name: translateForPlayer(client, player, "player.requestedBy"),
       value: "<@" + requester + ">",
       inline: true
     }, {
-      name: t("player.duration"),
+      name: translateForPlayer(client, player, "player.duration"),
       value: CODE_TICK + totalDuration + CODE_TICK,
       inline: true
     }, {

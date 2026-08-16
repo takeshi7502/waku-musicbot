@@ -3,7 +3,9 @@ const {
   EmbedBuilder
 } = require("discord.js");
 const {
-  t
+  t,
+  translate,
+  DEFAULT_LANGUAGE
 } = require("../../util/i18n");
 const SlashCommand = require("../../lib/SlashCommand");
 const command = new SlashCommand().setName("autopause").setDescription(t("autopause.auto_11")).setRun(async (client, interaction) => {
@@ -36,7 +38,7 @@ const command = new SlashCommand().setName("autopause").setDescription(t("autopa
       var1: !autoPause ? t("common.willNow") : t("common.willNoLonger")
     })
   });
-  client.warn(t("autopause.auto_15", {
+  client.warn(translate(DEFAULT_LANGUAGE, "autopause.auto_15", {
     var1: player.guildId,
     var2: colors.blue("AUTOPAUSE"),
     var3: colors.blue(!autoPause ? t("common.on") : t("common.off")),

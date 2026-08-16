@@ -72,7 +72,7 @@ const command = new SlashCommand()
       time: 600000
     });
 
-    collector.on("collect", async button => {
+    collector.on("collect", async button => client.runWithGuildLanguage(interaction.guildId, async () => {
       if (button.customId === "help_cmd_but_close_app") {
         await button.deferUpdate().catch(() => {});
         collector.stop();
@@ -89,7 +89,7 @@ const command = new SlashCommand()
         embeds: [buildHelpEmbed(client, commands, pageNo, maxPages)],
         components: [buildButtons(pageNo, maxPages)]
       }).catch(() => {});
-    });
+    }));
 
     collector.on("end", () => {
       interaction.deleteReply().catch(() => {});

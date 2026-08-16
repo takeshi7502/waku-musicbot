@@ -370,6 +370,13 @@
     "auto_238": "{var1} Thông Tin",
     "auto_239": "• **Đang phát**: {var1} phòng • **Kết nối**: {var2} phòng\n"
   },
+  "lang": {
+    "description": "Đổi ngôn ngữ hiển thị cho máy chủ này",
+    "option": "Ngôn ngữ muốn dùng",
+    "noPermission": "Bạn cần quyền `Quản Lý Máy Chủ` để đổi ngôn ngữ.",
+    "saveError": "Không thể lưu ngôn ngữ máy chủ lúc này. Vui lòng thử lại sau.",
+    "changed": "✅ Ngôn ngữ hiển thị của máy chủ đã đổi sang **{language}**."
+  },
   "lavalink": {
     "noPermission": "Bạn không có quyền sử dụng lệnh này!",
     "noNodes": "❌ Không có node nào trong config!",
