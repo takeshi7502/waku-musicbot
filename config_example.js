@@ -7,6 +7,7 @@ module.exports = {
 	token: process.env.token || "YOUR_TOKEN_HERE", //- Bot's Token
 	clientId: process.env.clientId || "YOUR_CLIENT_ID", //- ID of the bot
 	clientSecret: process.env.clientSecret || "YOUR_CLIENT_SECRET", //- Client Secret of the bot
+	mongoURI: "", // MongoDB Atlas URI. Để trống thì bot dùng data/db.json cũ.
 	serverDeafen: true, //- If you want bot to stay deafened
 	defaultVolume: 50, //- Sets the default volume of the bot, You can change this number anywhere from 1 to 100
 	supportServer: "https://discord.gg/eGkwfAQKMF", //- Support Server Link
@@ -46,9 +47,10 @@ module.exports = {
 	iconURL: "https://cdn.discordapp.com/attachments/1360438209645121620/1491891499116527747/youtube_1.png?ex=69d957bb&is=69d8063b&hm=aa1d3166fc1882fc5fe32e96fb75c63af75470430bc270cc89fef39a2ac310b3&", //- This icon will be in every embed's author field
 	// ====== PUBLIC STATUS API (optional) ======
 	publicStatusApi: {
-		enabled: process.env.PUBLIC_STATUS_API_ENABLED === "true",
-		host: process.env.PUBLIC_STATUS_HOST || "127.0.0.1",
-		port: Number(process.env.PUBLIC_STATUS_PORT || 3000),
+		enabled: false,
+		host: "127.0.0.1",
+		port: 3000,
+		domain: "status.example.com",
 	},
 	// ====== WEB DASHBOARD ======
 	port: process.env.PORT || 3000, //- Port cho web dashboard

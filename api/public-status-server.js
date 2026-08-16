@@ -115,8 +115,8 @@ async function getPublicStatus(client) {
 }
 
 function startPublicStatusApi(client) {
-  const port = Number(process.env.PUBLIC_STATUS_PORT || client.config?.publicStatusApi?.port || 3000);
-  const host = process.env.PUBLIC_STATUS_HOST || client.config?.publicStatusApi?.host || "127.0.0.1";
+  const port = Number(client.config?.publicStatusApi?.port || 3000);
+  const host = client.config?.publicStatusApi?.host || "127.0.0.1";
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);

@@ -98,52 +98,6 @@ escape_sed() {
   printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g' -e 's/"/\\"/g'
 }
 
-set_env_value() {
-  local key="$1"
-  local value="$2"
-  local temporary
-
-  [[ "$value" != *$'\n'* ]] || return 1
-  temporary="$(mktemp)"
-
-  if [[ -f .env ]]; then
-    awk -v key="$key" -v value="$value" '
-      $0 ~ ("^" key "=") {
-        print key "=" value
-        found = 1
-        next
-      }
-      { print }
-      END {
-        if (!found) print key "=" value
-      }
-    ' .env > "$temporary"
-  else
-    printf '%s=%s\n' "$key" "$value" > "$temporary"
-  fi
-
-  mv "$temporary" .env
-  chmod 600 .env
-}
-
-get_env_value() {
-  local key="$1"
-  [[ -f .env ]] || return 0
-  grep -E "^${key}=" .env | tail -n 1 | cut -d '=' -f 2-
-}
-
-ensure_api_environment() {
-  [[ -f .env ]] || : > .env
-  [[ -n "$(get_env_value PUBLIC_STATUS_API_ENABLED)" ]] || set_env_value PUBLIC_STATUS_API_ENABLED false
-  [[ -n "$(get_env_value PUBLIC_STATUS_HOST)" ]] || set_env_value PUBLIC_STATUS_HOST 127.0.0.1
-  [[ -n "$(get_env_value PUBLIC_STATUS_PORT)" ]] || set_env_value PUBLIC_STATUS_PORT 3000
-  chmod 600 .env
-}
-
-api_is_enabled() {
-  [[ "$(get_env_value PUBLIC_STATUS_API_ENABLED)" == "true" ]]
-}
-
 prompt_required() {
   local variable_name="$1"
   local prompt="$2"
@@ -291,8 +245,94 @@ update_lavalink_config() {
   chmod 600 config.js
 }
 
+ensure_public_status_config() {
+  [[ -f config.js ]] || return 1
+  if grep -q "^[[:space:]]*publicStatusApi:[[:space:]]*{" config.js; then
+    if ! sed -n -E '/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/ { s/^[[:space:]]*domain:.*/domain/p; }' config.js | grep -q .; then
+      local existing_temporary
+      existing_temporary="$(mktemp)"
+      awk '
+        /^[[:space:]]*publicStatusApi:[[:space:]]*\{/ { in_public_status_api = 1 }
+        in_public_status_api && /^[[:space:]]*\},/ {
+          print "\t\tdomain: \"status.example.com\","
+          in_public_status_api = 0
+        }
+        { print }
+      ' config.js > "$existing_temporary"
+      mv "$existing_temporary" config.js
+      chmod 600 config.js
+    fi
+    return
+  fi
+  grep -q "WEB DASHBOARD" config.js || {
+    echo "Cannot add the public API configuration to config.js automatically."
+    return 1
+  }
+
+  local temporary
+  temporary="$(mktemp)"
+  awk '
+    /WEB DASHBOARD/ && !inserted {
+      print "\t// ====== PUBLIC STATUS API (optional) ======"
+      print "\tpublicStatusApi: {"
+      print "\t\tenabled: false,"
+      print "\t\thost: \"127.0.0.1\","
+      print "\t\tport: 3000,"
+      print "\t\tdomain: \"status.example.com\","
+      print "\t},"
+      inserted = 1
+    }
+    { print }
+  ' config.js > "$temporary"
+  mv "$temporary" config.js
+  chmod 600 config.js
+}
+
+read_public_status_values() {
+  ensure_public_status_config || return 1
+  CURRENT_PUBLIC_STATUS_ENABLED="$(sed -n -E '/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/ { s/^[[:space:]]*enabled:[[:space:]]*(true|false).*/\1/p; }' config.js | head -n 1)"
+  CURRENT_PUBLIC_STATUS_HOST="$(sed -n -E '/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/ { s/^[[:space:]]*host:[[:space:]]*"([^"]+)".*/\1/p; }' config.js | head -n 1)"
+  CURRENT_PUBLIC_STATUS_PORT="$(sed -n -E '/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/ { s/^[[:space:]]*port:[[:space:]]*([0-9]+).*/\1/p; }' config.js | head -n 1)"
+  CURRENT_PUBLIC_STATUS_DOMAIN="$(sed -n -E '/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/ { s/^[[:space:]]*domain:[[:space:]]*"([^"]+)".*/\1/p; }' config.js | head -n 1)"
+  CURRENT_PUBLIC_STATUS_ENABLED="${CURRENT_PUBLIC_STATUS_ENABLED:-false}"
+  CURRENT_PUBLIC_STATUS_HOST="${CURRENT_PUBLIC_STATUS_HOST:-127.0.0.1}"
+  CURRENT_PUBLIC_STATUS_PORT="${CURRENT_PUBLIC_STATUS_PORT:-3000}"
+  CURRENT_PUBLIC_STATUS_DOMAIN="${CURRENT_PUBLIC_STATUS_DOMAIN:-status.example.com}"
+}
+
+api_is_enabled() {
+  read_public_status_values || return 1
+  [[ "$CURRENT_PUBLIC_STATUS_ENABLED" == "true" ]]
+}
+
+update_public_status_config() {
+  local enabled="$1"
+  local host="$2"
+  local port="$3"
+  local domain="$4"
+  local host_escaped domain_escaped
+  host_escaped="$(escape_sed "$host")"
+  domain_escaped="$(escape_sed "$domain")"
+
+  ensure_public_status_config || return 1
+  sed -i -E \
+    -e "/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/s|^[[:space:]]*enabled:.*|    enabled: $enabled,|" \
+    -e "/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/s|^[[:space:]]*host:.*|    host: \"$host_escaped\",|" \
+    -e "/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/s|^[[:space:]]*port:.*|    port: $port,|" \
+    -e "/^[[:space:]]*publicStatusApi:[[:space:]]*\{/,/^[[:space:]]*\},/s|^[[:space:]]*domain:.*|    domain: \"$domain_escaped\",|" \
+    config.js
+  chmod 600 config.js
+}
+
+write_caddyfile() {
+  local domain="$1"
+  local port="$2"
+  printf '%s\n' "$domain {" "    reverse_proxy 127.0.0.1:$port" "}" > Caddyfile
+}
+
 ensure_config() {
   if [[ -f config.js ]]; then
+    ensure_public_status_config
     return
   fi
 
@@ -326,7 +366,7 @@ ensure_config() {
 
   collect_lavalink_configuration 127.0.0.1 2333 youshallnotpass false
   write_initial_config
-  ensure_api_environment
+  ensure_public_status_config
   echo "Đã tạo config.js. API web đang tắt mặc định."
 }
 
@@ -369,7 +409,7 @@ rebuild_bot() {
     echo "Hãy chạy mục Thiết lập bot trước."
     return
   }
-  ensure_api_environment
+  ensure_public_status_config
   mkdir -p data
   echo "Đang build lại image bot..."
   compose build --pull discordmusicbot
@@ -437,18 +477,17 @@ setup_web_api() {
     echo "Hãy thiết lập bot trước."
     return
   }
-  ensure_api_environment
-
   local default_domain domain default_port api_port
-  default_domain="$(get_env_value PUBLIC_STATUS_DOMAIN)"
-  prompt_optional domain "Tên miền API web, ví dụ status.example.com" "${default_domain:-status.example.com}"
+  read_public_status_values || return
+  default_domain="$CURRENT_PUBLIC_STATUS_DOMAIN"
+  prompt_optional domain "Tên miền API web, ví dụ status.example.com" "$default_domain"
   [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || {
     echo "Tên miền không hợp lệ."
     return
   }
 
-  default_port="$(get_env_value PUBLIC_STATUS_PORT)"
-  prompt_optional api_port "Cổng nội bộ API" "${default_port:-3000}"
+  default_port="$CURRENT_PUBLIC_STATUS_PORT"
+  prompt_optional api_port "Cổng nội bộ API" "$default_port"
   valid_port "$api_port" || {
     echo "Port không hợp lệ."
     return
@@ -458,10 +497,8 @@ setup_web_api() {
   read -r -p "Tiếp tục bật API web? [y/N]: " confirm
   [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return
 
-  set_env_value PUBLIC_STATUS_API_ENABLED true
-  set_env_value PUBLIC_STATUS_HOST 127.0.0.1
-  set_env_value PUBLIC_STATUS_PORT "$api_port"
-  set_env_value PUBLIC_STATUS_DOMAIN "$domain"
+  update_public_status_config true 127.0.0.1 "$api_port" "$domain"
+  write_caddyfile "$domain" "$api_port"
 
   compose --profile web-api up -d --force-recreate discordmusicbot caddy
   echo "API web đã bật: https://$domain/api/public-status"
@@ -470,8 +507,8 @@ setup_web_api() {
 
 stop_web_api() {
   require_docker || return
-  ensure_api_environment
-  set_env_value PUBLIC_STATUS_API_ENABLED false
+  read_public_status_values || return
+  update_public_status_config false "$CURRENT_PUBLIC_STATUS_HOST" "$CURRENT_PUBLIC_STATUS_PORT" "$CURRENT_PUBLIC_STATUS_DOMAIN"
   compose --profile web-api stop caddy >/dev/null 2>&1 || true
   compose --profile web-api rm -f caddy >/dev/null 2>&1 || true
   compose up -d --force-recreate discordmusicbot
@@ -480,11 +517,11 @@ stop_web_api() {
 
 show_web_api_status() {
   require_docker || return
-  ensure_api_environment
+  read_public_status_values || return
   if api_is_enabled; then
     echo "API web: đang bật"
-    echo "Tên miền: $(get_env_value PUBLIC_STATUS_DOMAIN)"
-    echo "Endpoint: https://$(get_env_value PUBLIC_STATUS_DOMAIN)/api/public-status"
+    echo "Tên miền: $CURRENT_PUBLIC_STATUS_DOMAIN"
+    echo "Endpoint: https://$CURRENT_PUBLIC_STATUS_DOMAIN/api/public-status"
   else
     echo "API web: đang tắt"
   fi
