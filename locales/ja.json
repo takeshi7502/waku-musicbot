@@ -29,6 +29,9 @@
     "nowPlaying": "プレイ中",
     "requestedBy": "リクエスト者",
     "duration": "間隔",
+    "playbackDetails": "ループ: {loop} • 自動追加: {autoQueue} • 音量: {volume}%",
+    "loopTrack": "曲",
+    "loopQueue": "キュー",
     "noDescription": "説明なし",
     "searching": ":mag_right: **検索中...**",
     "searchError": "検索中にエラーが発生しました",
@@ -114,7 +117,6 @@
     "trackStuckFooter": "おっと！何か問題が発生しましたが、それはあなたのせいではありません!",
     "botUpdated": "⚠️ **ボットが更新されました!**\n音楽を再度再生するには「/play」を使用します。",
     "serverReplaced": "⚠️ **音楽サーバーを交換中です!**\n音楽を再度再生するには「/play」を使用します。",
-    "lavalinkUpdated": "⚠️ **Lavalink 設定が更新されました!**\n音楽を再度再生するには「/play」を使用します。",
     "generic": "❌ コマンド実行中にエラーが発生しました。"
   },
   "guild": {

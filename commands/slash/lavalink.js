@@ -604,6 +604,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
   // ACTION: RELOAD
   // ================================================================
   if (action === "reload") {
+    client.isLavalinkReloading = true;
     try {
       const configPath = path.resolve(__dirname, "..", "..", "config.js");
       const devConfigPath = path.resolve(__dirname, "..", "..", "config.dev.js");
@@ -666,7 +667,7 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
             const textChannel = client.channels.cache.get(player.textChannelId);
             if (textChannel) {
               await textChannel.send({
-                embeds: [new EmbedBuilder().setColor("#FF8800").setDescription(t("error.lavalinkUpdated")).setTimestamp()]
+                embeds: [new EmbedBuilder().setColor("#FF8800").setDescription(t("error.botUpdated")).setTimestamp()]
               }).catch(() => {});
             }
             await player.destroy().catch(() => {});
@@ -680,27 +681,14 @@ const command = new SlashCommand().setName("lavalink").setDescription(t("lavalin
       await interaction.editReply({
         embeds: [succEmbed]
       });
-      if (lavalinkChanged && client.sendLavalinkNotification) {
-        const oldIds = oldNodes.map(n => n.id);
-        const newIds = newNodes.map(n => n.id);
-        const added = newNodes.filter(n => !oldIds.includes(n.id));
-        const removed = oldNodes.filter(n => !newIds.includes(n.id));
-        const kept = newNodes.filter(n => oldIds.includes(n.id));
-        let notifyMsg = t("lavalink.auto_134");
-        if (added.length) notifyMsg += added.map(n => `➕ \`${n.id}\`|\`${n.host}:${n.port}\``).join("\n") + "\n";
-        if (removed.length) notifyMsg += removed.map(n => `➖ \`${n.id}\`|\`${n.host}:${n.port}\``).join("\n") + "\n";
-        if (kept.length) notifyMsg += kept.map(n => `▪️ \`${n.id}\`|\`${n.host}:${n.port}\``).join("\n") + "\n";
-        notifyMsg += t("lavalink.auto_135", {
-          var1: connected
-        });
-        client.sendLavalinkNotification(new EmbedBuilder().setColor("#00AAFF").setDescription(notifyMsg).setTimestamp());
-      }
     } catch (err) {
       return interaction.editReply({
         embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_136", {
           var1: err.message
         }))]
       });
+    } finally {
+      client.isLavalinkReloading = false;
     }
   }
 });

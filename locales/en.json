@@ -29,6 +29,9 @@
     "nowPlaying": "Now Playing",
     "requestedBy": "Requested by",
     "duration": "Duration",
+    "playbackDetails": "Loop: {loop} • Auto add: {autoQueue} • Volume: {volume}%",
+    "loopTrack": "Track",
+    "loopQueue": "Queue",
     "noDescription": "No description",
     "searching": ":mag_right: **Searching...**",
     "searchError": "An error occurred while searching",
@@ -114,7 +117,6 @@
     "trackStuckFooter": "Oops! Something went wrong but it's not your fault!",
     "botUpdated": "⚠️ **Bot has been updated!**\nUse `/play` to play music again.",
     "serverReplaced": "⚠️ **Music server is being replaced!**\nUse `/play` to play music again.",
-    "lavalinkUpdated": "⚠️ **Lavalink configuration updated!**\nUse `/play` to play music again.",
     "generic": "❌ An error occurred while executing the command."
   },
   "guild": {

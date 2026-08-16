@@ -144,7 +144,7 @@ module.exports = async (client, interaction) => {
       var1: player.guildId,
       var2: player.repeatMode === "track" ? "bài hát" : player.repeatMode === "queue" ? "hàng đợi" : "tất cả"
     }));
-    return refreshNowPlayingMessage(client, interaction, player);
+    return refreshNowPlayingMessage(client, interaction, player, true);
   }
   if (property === "SelectQueue") {
     const selectedValue = interaction.values?.[0]; // "queuejump:2"

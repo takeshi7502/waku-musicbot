@@ -5,6 +5,9 @@ const {
 const {
   t
 } = require("../../util/i18n");
+const {
+  refreshNowPlayingPanel
+} = require("../../util/nowPlayingEmbed");
 const SlashCommand = require("../../lib/SlashCommand");
 const command = new SlashCommand().setName("autoqueue").setDescription(t("autoqueue.auto_16")).setRun(async (client, interaction) => {
   let channel = await client.getChannel(client, interaction);
@@ -35,6 +38,7 @@ const command = new SlashCommand().setName("autoqueue").setDescription(t("autoqu
   } else {
     player.set("autoQueue", false);
   }
+  await refreshNowPlayingPanel(client, player).catch(() => {});
   autoQueueEmbed.setDescription(t("autoqueue.auto_18", {
     var1: !autoQueue ? t("common.on") : t("common.off")
   })).setFooter({

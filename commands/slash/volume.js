@@ -5,6 +5,9 @@ const {
 const {
   t
 } = require("../../util/i18n");
+const {
+  refreshNowPlayingPanel
+} = require("../../util/nowPlayingEmbed");
 const command = new SlashCommand().setName("volume").setDescription(t("volume.auto_255")).addNumberOption(option => option.setName("amount").setDescription(t("volume.auto_256")).setRequired(false)).setRun(async (client, interaction) => {
   let channel = await client.getChannel(client, interaction);
   if (!channel) {
@@ -36,6 +39,7 @@ const command = new SlashCommand().setName("volume").setDescription(t("volume.au
     });
   }
   player.setVolume(vol);
+  await refreshNowPlayingPanel(client, player).catch(() => {});
   return interaction.reply({
     ephemeral: true,
     embeds: [new EmbedBuilder().setColor(client.config.embedColor).setDescription(t("volume.auto_258", {

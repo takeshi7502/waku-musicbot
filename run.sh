@@ -324,12 +324,6 @@ update_public_status_config() {
   chmod 600 config.js
 }
 
-write_caddyfile() {
-  local domain="$1"
-  local port="$2"
-  printf '%s\n' "$domain {" "    reverse_proxy 127.0.0.1:$port" "}" > Caddyfile
-}
-
 ensure_config() {
   if [[ -f config.js ]]; then
     ensure_public_status_config
@@ -395,12 +389,7 @@ deploy_commands() {
 }
 
 start_stack() {
-  if api_is_enabled; then
-    compose --profile web-api up -d --remove-orphans discordmusicbot caddy
-  else
-    compose --profile web-api stop caddy >/dev/null 2>&1 || true
-    compose up -d --remove-orphans discordmusicbot
-  fi
+  compose up -d --remove-orphans discordmusicbot
 }
 
 rebuild_bot() {
@@ -438,17 +427,13 @@ change_lavalink() {
 
 restart_bot() {
   require_docker || return
-  if api_is_enabled; then
-    compose --profile web-api restart discordmusicbot caddy
-  else
-    compose restart discordmusicbot
-  fi
+  compose restart discordmusicbot
   echo "Đã khởi động lại bot."
 }
 
 stop_bot() {
   require_docker || return
-  compose --profile web-api down --remove-orphans
+  compose down --remove-orphans
   echo "Đã dừng bot và API web (nếu đang chạy)."
 }
 
@@ -477,7 +462,7 @@ setup_web_api() {
     echo "Hãy thiết lập bot trước."
     return
   }
-  local default_domain domain default_port api_port
+  local default_domain domain
   read_public_status_values || return
   default_domain="$CURRENT_PUBLIC_STATUS_DOMAIN"
   prompt_optional domain "Tên miền API web, ví dụ status.example.com" "$default_domain"
@@ -486,33 +471,23 @@ setup_web_api() {
     return
   }
 
-  default_port="$CURRENT_PUBLIC_STATUS_PORT"
-  prompt_optional api_port "Cổng nội bộ API" "$default_port"
-  valid_port "$api_port" || {
-    echo "Port không hợp lệ."
-    return
-  }
-
-  echo "Yêu cầu: DNS của $domain phải trỏ về VPS, đồng thời mở TCP 80 và 443."
-  read -r -p "Tiếp tục bật API web? [y/N]: " confirm
+  echo "Nginx phải proxy $domain tới 127.0.0.1:3000 và quản lý HTTPS."
+  read -r -p "Tiếp tục bật API web qua Nginx? [y/N]: " confirm
   [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return
 
-  update_public_status_config true 127.0.0.1 "$api_port" "$domain"
-  write_caddyfile "$domain" "$api_port"
+  update_public_status_config true 127.0.0.1 3000 "$domain"
 
-  compose --profile web-api up -d --force-recreate discordmusicbot caddy
+  compose up -d --force-recreate discordmusicbot
   echo "API web đã bật: https://$domain/api/public-status"
-  echo "Caddy sẽ tự xin/gia hạn HTTPS sau khi DNS và cổng 80/443 sẵn sàng."
+  echo "Nginx sẽ tiếp tục phục vụ HTTPS và chuyển tiếp request vào bot."
 }
 
 stop_web_api() {
   require_docker || return
   read_public_status_values || return
   update_public_status_config false "$CURRENT_PUBLIC_STATUS_HOST" "$CURRENT_PUBLIC_STATUS_PORT" "$CURRENT_PUBLIC_STATUS_DOMAIN"
-  compose --profile web-api stop caddy >/dev/null 2>&1 || true
-  compose --profile web-api rm -f caddy >/dev/null 2>&1 || true
   compose up -d --force-recreate discordmusicbot
-  echo "Đã tắt API web và Caddy. Bot nhạc vẫn chạy."
+  echo "Đã tắt API web. Bot nhạc và Nginx vẫn chạy."
 }
 
 show_web_api_status() {
@@ -522,17 +497,24 @@ show_web_api_status() {
     echo "API web: đang bật"
     echo "Tên miền: $CURRENT_PUBLIC_STATUS_DOMAIN"
     echo "Endpoint: https://$CURRENT_PUBLIC_STATUS_DOMAIN/api/public-status"
+    if command -v curl >/dev/null 2>&1; then
+      if curl --connect-timeout 3 --max-time 8 -fsS "http://127.0.0.1:$CURRENT_PUBLIC_STATUS_PORT/api/public-status" >/dev/null; then
+        echo "API nội bộ: phản hồi bình thường"
+      else
+        echo "API nội bộ: chưa phản hồi"
+      fi
+    fi
   else
     echo "API web: đang tắt"
   fi
-  compose --profile web-api ps
+  compose ps
 }
 
 web_api_menu() {
   while true; do
     echo
-    echo "=== API WEB CÔNG KHAI ==="
-    echo "1) Bật / cấu hình API web"
+    echo "=== API WEB CÔNG KHAI (NGINX) ==="
+    echo "1) Bật / cấu hình API web qua Nginx"
     echo "2) Tắt hoàn toàn API web"
     echo "3) Xem trạng thái"
     echo "0) Quay lại"

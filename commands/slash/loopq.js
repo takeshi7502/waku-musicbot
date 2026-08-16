@@ -5,6 +5,9 @@ const {
 const {
   t
 } = require("../../util/i18n");
+const {
+  refreshNowPlayingPanel
+} = require("../../util/nowPlayingEmbed");
 const command = new SlashCommand().setName("loopq").setDescription(t("player.loopQueueEnabled")).setRun(async (client, interaction, options) => {
   let channel = await client.getChannel(client, interaction);
   if (!channel) {
@@ -32,6 +35,7 @@ const command = new SlashCommand().setName("loopq").setDescription(t("player.loo
   } else {
     player.setRepeatMode("queue");
   }
+  await refreshNowPlayingPanel(client, player).catch(() => {});
   const queueRepeat = player.repeatMode === "queue" ? "enabled" : "disabled";
   interaction.reply({
     ephemeral: true,

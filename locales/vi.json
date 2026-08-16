@@ -29,6 +29,9 @@
     "nowPlaying": "Đang phát",
     "requestedBy": "Yêu cầu từ",
     "duration": "Thời lượng",
+    "playbackDetails": "Lặp: {loop} • Tự động thêm bài: {autoQueue} • Âm lượng: {volume}%",
+    "loopTrack": "Bài hát",
+    "loopQueue": "Hàng đợi",
     "noDescription": "Không có mô tả",
     "searching": ":mag_right: **Đang tìm...**",
     "searchError": "Có lỗi xảy ra trong quá trình tìm kiếm",
@@ -114,7 +117,6 @@
     "trackStuckFooter": "Ồ! Có điều gì đó đã xảy ra không đúng nhưng không phải lỗi của bạn!",
     "botUpdated": "⚠️ **Bot vừa được cập nhật!**\nBạn dùng `/play` để phát lại nhạc nhé.",
     "serverReplaced": "⚠️ **Server nhạc đang được thay thế!**\nBạn dùng `/play` để phát lại nhạc nhé.",
-    "lavalinkUpdated": "⚠️ **Lavalink vừa được cập nhật cấu hình!**\nBạn dùng `/play` để phát lại nhạc nhé.",
     "generic": "❌ Có lỗi xảy ra khi thực hiện lệnh."
   },
   "guild": {

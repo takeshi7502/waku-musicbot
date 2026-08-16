@@ -28,12 +28,22 @@ function buildNowPlayingEmbed(client, player, track) {
   const isStream = track.info.isStream;
   const totalDuration = isStream ? "LIVE" : formatTime(track.info.duration);
   const playbackIcon = player.paused ? "⏸️" : "▶️";
+  const loopMode = player.repeatMode === "track"
+    ? t("player.loopTrack")
+    : player.repeatMode === "queue"
+      ? t("player.loopQueue")
+      : "Off";
+  const playbackDetails = t("player.playbackDetails", {
+    loop: loopMode,
+    autoQueue: player.get("autoQueue") ? "ON" : "Off",
+    volume: player.volume
+  });
   const progress = isStream
     ? playbackIcon + " 🔴 LIVE"
     : playbackIcon + " " + CODE_TICK + "0:00 " + buildProgressBar(player.position, track.info.duration) + " " + totalDuration + CODE_TICK;
   const description = track.info.uri
-    ? "[" + title + "](" + track.info.uri + ")\n" + progress
-    : title + "\n" + progress;
+    ? "[**" + title + "**](" + track.info.uri + ")\n" + progress
+    : "**" + title + "**\n" + progress;
 
   const embed = client.Embed()
     .setAuthor({
@@ -49,6 +59,10 @@ function buildNowPlayingEmbed(client, player, track) {
       name: t("player.duration"),
       value: CODE_TICK + totalDuration + CODE_TICK,
       inline: true
+    }, {
+      name: " ",
+      value: playbackDetails,
+      inline: false
     });
 
   if (track.info.artworkUrl) embed.setThumbnail(track.info.artworkUrl);
@@ -61,6 +75,17 @@ function markNowPlayingUserAction(player) {
 
 function isNowPlayingUserActionPending(player) {
   return Date.now() < (player.get("nowPlayingUserActionUntil") || 0);
+}
+
+async function refreshNowPlayingPanel(client, player) {
+  const message = player.get("nowPlayingMessage");
+  const track = player.queue.current;
+  if (!message || !track) return null;
+
+  return queueNowPlayingMessageEdit(player, message, {
+    embeds: [buildNowPlayingEmbed(client, player, track)],
+    components: client.createController(player.guildId, player)
+  });
 }
 
 async function queueNowPlayingMessageEdit(player, message, payload) {
@@ -103,5 +128,6 @@ module.exports = {
   buildNowPlayingEmbed,
   markNowPlayingUserAction,
   isNowPlayingUserActionPending,
+  refreshNowPlayingPanel,
   queueNowPlayingMessageEdit
 };

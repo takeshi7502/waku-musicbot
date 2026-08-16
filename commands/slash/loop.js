@@ -5,6 +5,9 @@ const {
 const {
   t
 } = require("../../util/i18n");
+const {
+  refreshNowPlayingPanel
+} = require("../../util/nowPlayingEmbed");
 const command = new SlashCommand().setName("loop").setDescription(t("loop.auto_137")).setRun(async (client, interaction, options) => {
   let channel = await client.getChannel(client, interaction);
   if (!channel) {
@@ -32,6 +35,7 @@ const command = new SlashCommand().setName("loop").setDescription(t("loop.auto_1
   } else {
     player.setRepeatMode("track");
   }
+  await refreshNowPlayingPanel(client, player).catch(() => {});
   const trackRepeat = player.repeatMode === "track" ? "enabled" : "disabled";
   interaction.reply({
     ephemeral: true,
