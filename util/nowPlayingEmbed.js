@@ -55,7 +55,53 @@ function buildNowPlayingEmbed(client, player, track) {
   return embed;
 }
 
+function markNowPlayingUserAction(player) {
+  player.set("nowPlayingUserActionUntil", Date.now() + 1500);
+}
+
+function isNowPlayingUserActionPending(player) {
+  return Date.now() < (player.get("nowPlayingUserActionUntil") || 0);
+}
+
+async function queueNowPlayingMessageEdit(player, message, payload) {
+  const queuedEdit = {
+    message,
+    payload
+  };
+
+  if (player.get("nowPlayingEditInFlight")) {
+    player.set("nowPlayingPendingEdit", queuedEdit);
+    return player.get("nowPlayingEditPromise");
+  }
+
+  player.set("nowPlayingEditInFlight", true);
+  const editPromise = (async () => {
+    let nextEdit = queuedEdit;
+    let editedMessage;
+
+    while (nextEdit) {
+      player.set("nowPlayingPendingEdit", null);
+      editedMessage = await nextEdit.message.edit(nextEdit.payload);
+      nextEdit = player.get("nowPlayingPendingEdit");
+    }
+
+    return editedMessage;
+  })();
+
+  player.set("nowPlayingEditPromise", editPromise);
+  try {
+    return await editPromise;
+  } finally {
+    player.set("nowPlayingEditInFlight", false);
+    player.set("nowPlayingEditPromise", null);
+    player.set("nowPlayingPendingEdit", null);
+  }
+}
+
 module.exports = {
   PROGRESS_SEGMENTS,
-  buildNowPlayingEmbed
+  buildNowPlayingEmbed,
+  markNowPlayingUserAction,
+  isNowPlayingUserActionPending,
+  queueNowPlayingMessageEdit
 };

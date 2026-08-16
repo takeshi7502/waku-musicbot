@@ -5,8 +5,23 @@ const {
   t
 } = require("./i18n");
 const {
-  buildNowPlayingEmbed
+  buildNowPlayingEmbed,
+  markNowPlayingUserAction,
+  queueNowPlayingMessageEdit
 } = require("./nowPlayingEmbed");
+
+async function refreshNowPlayingMessage(client, interaction, player, includeEmbed = false) {
+  if (!interaction.message) return;
+
+  const payload = {
+    components: client.createController(player.guildId, player)
+  };
+  if (includeEmbed && player.queue.current) {
+    payload.embeds = [buildNowPlayingEmbed(client, player, player.queue.current)];
+  }
+
+  await queueNowPlayingMessageEdit(player, interaction.message, payload).catch(() => {});
+}
 
 /**
  *
@@ -39,6 +54,7 @@ module.exports = async (client, interaction) => {
     });
   }
   if (property === "Stop") {
+    markNowPlayingUserAction(player);
     await interaction.deferUpdate().catch(() => {});
     player.queue.tracks.splice(0);
     player.set("autoQueue", false);
@@ -63,11 +79,13 @@ module.exports = async (client, interaction) => {
       });
     }
     if (previousSong !== currentSong && previousSong !== nextSong) {
+      markNowPlayingUserAction(player);
+      await interaction.deferUpdate().catch(() => {});
       player.queue.tracks.splice(0, 0, currentSong);
       player.play({
         clientTrack: previousSong
       });
-      return interaction.deferUpdate();
+      return;
     }
   }
   if (property === "PlayAndPause") {
@@ -80,6 +98,8 @@ module.exports = async (client, interaction) => {
       }, 5000);
       return interaction.deferUpdate().catch(() => {});
     } else {
+      markNowPlayingUserAction(player);
+      await interaction.deferUpdate().catch(() => {});
       if (player.paused) {
         player.resume();
       } else {
@@ -89,10 +109,7 @@ module.exports = async (client, interaction) => {
         var1: player.guildId,
         var2: player.paused ? "Tạm dừng" : "Tiếp tục"
       }));
-      return interaction.update({
-        embeds: [buildNowPlayingEmbed(client, player, player.queue.current)],
-        components: client.createController(player.guildId, player)
-      }).catch(() => {});
+      return refreshNowPlayingMessage(client, interaction, player, true);
     }
   }
   if (property === "Next") {
@@ -107,12 +124,15 @@ module.exports = async (client, interaction) => {
         }))]
       });
     } else {
+      markNowPlayingUserAction(player);
       await interaction.deferUpdate().catch(() => {});
       player.stopPlaying(false, false);
       return;
     }
   }
   if (property === "Loop") {
+    markNowPlayingUserAction(player);
+    await interaction.deferUpdate().catch(() => {});
     if (player.repeatMode === "track") {
       player.setRepeatMode("queue");
     } else if (player.repeatMode === "queue") {
@@ -124,9 +144,7 @@ module.exports = async (client, interaction) => {
       var1: player.guildId,
       var2: player.repeatMode === "track" ? "bài hát" : player.repeatMode === "queue" ? "hàng đợi" : "tất cả"
     }));
-    return interaction.update({
-      components: client.createController(player.guildId, player)
-    }).catch(() => {});
+    return refreshNowPlayingMessage(client, interaction, player);
   }
   if (property === "SelectQueue") {
     const selectedValue = interaction.values?.[0]; // "queuejump:2"
@@ -139,9 +157,11 @@ module.exports = async (client, interaction) => {
       });
     }
     // Xóa các bài phía trước bài được chọn, sau đó chạy bài tiếp theo
+    markNowPlayingUserAction(player);
+    await interaction.deferUpdate().catch(() => {});
     player.queue.splice(0, index);
     player.stopPlaying(false, false);
-    return interaction.deferUpdate().catch(() => {});
+    return;
   }
   if (property === "Save") {
     const song = player.queue.current;

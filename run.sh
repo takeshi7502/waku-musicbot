@@ -1,210 +1,560 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Chọn Docker Compose v2 hoặc fallback docker-compose v1.
-if ! command -v docker &> /dev/null; then
-    echo "❌ Docker chưa được cài đặt!"
-    exit 1
-fi
-if docker compose version &> /dev/null; then
-    compose() { sudo docker compose "$@"; }
-elif command -v docker-compose &> /dev/null; then
-    compose() { sudo docker-compose "$@"; }
-else
-    echo "❌ Không tìm thấy Docker Compose (docker compose hoặc docker-compose)."
-    exit 1
-fi
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+COMPOSE=()
+
+run_as_root() {
+  if [[ "$EUID" -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+detect_compose() {
+  if ! command -v docker >/dev/null 2>&1; then
+    return 1
+  fi
+
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE=(docker compose)
+    return 0
+  fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE=(docker-compose)
+    return 0
+  fi
+
+  return 1
+}
+
+compose() {
+  if docker info >/dev/null 2>&1; then
+    "${COMPOSE[@]}" "$@"
+  else
+    run_as_root "${COMPOSE[@]}" "$@"
+  fi
+}
+
+pause_menu() {
+  read -r -p "Nhấn Enter để tiếp tục..." _
+}
+
+ensure_curl() {
+  command -v curl >/dev/null 2>&1 && return 0
+
+  if command -v apt-get >/dev/null 2>&1; then
+    run_as_root apt-get update
+    run_as_root apt-get install -y curl
+    return
+  fi
+
+  echo "Không tìm thấy curl. Hãy cài curl rồi chạy lại."
+  return 1
+}
+
+install_docker_if_needed() {
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker chưa được cài. Cài Docker Engine cho Linux ngay bây giờ?"
+    read -r -p "Nhập y để tiếp tục: " answer
+    if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
+      echo "Đã huỷ cài Docker."
+      return 1
+    fi
+    ensure_curl || return 1
+    curl -fsSL https://get.docker.com | run_as_root sh
+    run_as_root usermod -aG docker "$USER" || true
+    echo "Docker đã được cài. Đăng xuất/đăng nhập lại để dùng Docker không cần sudo."
+  fi
+
+  if ! detect_compose; then
+    if command -v apt-get >/dev/null 2>&1; then
+      run_as_root apt-get update
+      run_as_root apt-get install -y docker-compose-plugin
+    else
+      echo "Không tự cài được Docker Compose trên hệ điều hành này."
+      return 1
+    fi
+  fi
+
+  detect_compose || {
+    echo "Không tìm thấy Docker Compose."
+    return 1
+  }
+}
+
+require_docker() {
+  if ! detect_compose; then
+    echo "Docker hoặc Docker Compose chưa sẵn sàng. Hãy chạy mục Thiết lập bot trước."
+    return 1
+  fi
+}
+
+escape_sed() {
+  printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g' -e 's/"/\\"/g'
+}
+
+set_env_value() {
+  local key="$1"
+  local value="$2"
+  local temporary
+
+  [[ "$value" != *$'\n'* ]] || return 1
+  temporary="$(mktemp)"
+
+  if [[ -f .env ]]; then
+    awk -v key="$key" -v value="$value" '
+      $0 ~ ("^" key "=") {
+        print key "=" value
+        found = 1
+        next
+      }
+      { print }
+      END {
+        if (!found) print key "=" value
+      }
+    ' .env > "$temporary"
+  else
+    printf '%s=%s\n' "$key" "$value" > "$temporary"
+  fi
+
+  mv "$temporary" .env
+  chmod 600 .env
+}
+
+get_env_value() {
+  local key="$1"
+  [[ -f .env ]] || return 0
+  grep -E "^${key}=" .env | tail -n 1 | cut -d '=' -f 2-
+}
+
+ensure_api_environment() {
+  [[ -f .env ]] || : > .env
+  [[ -n "$(get_env_value PUBLIC_STATUS_API_ENABLED)" ]] || set_env_value PUBLIC_STATUS_API_ENABLED false
+  [[ -n "$(get_env_value PUBLIC_STATUS_HOST)" ]] || set_env_value PUBLIC_STATUS_HOST 127.0.0.1
+  [[ -n "$(get_env_value PUBLIC_STATUS_PORT)" ]] || set_env_value PUBLIC_STATUS_PORT 3000
+  chmod 600 .env
+}
+
+api_is_enabled() {
+  [[ "$(get_env_value PUBLIC_STATUS_API_ENABLED)" == "true" ]]
+}
+
+prompt_required() {
+  local variable_name="$1"
+  local prompt="$2"
+  local secret="${3:-false}"
+  local value
+
+  while true; do
+    if [[ "$secret" == "true" ]]; then
+      read -r -s -p "$prompt" value
+      echo
+    else
+      read -r -p "$prompt" value
+    fi
+    if [[ -n "$value" ]]; then
+      printf -v "$variable_name" '%s' "$value"
+      return
+    fi
+    echo "Không được để trống."
+  done
+}
+
+prompt_optional() {
+  local variable_name="$1"
+  local prompt="$2"
+  local default_value="$3"
+  local value
+
+  read -r -p "$prompt [$default_value]: " value
+  printf -v "$variable_name" '%s' "${value:-$default_value}"
+}
+
+valid_port() {
+  [[ "$1" =~ ^[0-9]{1,5}$ ]] && ((10#$1 >= 1 && 10#$1 <= 65535))
+}
+
+test_lavalink() {
+  local host="$1"
+  local port="$2"
+  local password="$3"
+  local secure="$4"
+  local protocol="http"
+  [[ "$secure" == "true" ]] && protocol="https"
+
+  local status_code
+  status_code="$(curl --connect-timeout 5 --max-time 8 -sS -o /dev/null -w "%{http_code}" -H "Authorization: $password" "$protocol://$host:$port/v4/info" || true)"
+  [[ "$status_code" == "200" ]]
+}
+
+read_lavalink_values() {
+  if [[ ! -f config.js ]]; then
+    echo "Thiếu config.js."
+    return 1
+  fi
+
+  CURRENT_LAVA_HOST="$(sed -n -E '0,/^[[:space:]]*host:[[:space:]]*"([^"]+)".*/s//\1/p' config.js)"
+  CURRENT_LAVA_PORT="$(sed -n -E '0,/^[[:space:]]*port:[[:space:]]*([0-9]+).*/s//\1/p' config.js)"
+  CURRENT_LAVA_AUTH="$(sed -n -E '0,/^[[:space:]]*authorization:[[:space:]]*"([^"]+)".*/s//\1/p' config.js)"
+  CURRENT_LAVA_SECURE="$(sed -n -E '0,/^[[:space:]]*secure:[[:space:]]*(true|false).*/s//\1/p' config.js)"
+  CURRENT_LAVA_HOST="${CURRENT_LAVA_HOST:-127.0.0.1}"
+  CURRENT_LAVA_PORT="${CURRENT_LAVA_PORT:-2333}"
+  CURRENT_LAVA_AUTH="${CURRENT_LAVA_AUTH:-youshallnotpass}"
+  CURRENT_LAVA_SECURE="${CURRENT_LAVA_SECURE:-false}"
+}
+
+collect_lavalink_configuration() {
+  local default_host="$1"
+  local default_port="$2"
+  local default_auth="$3"
+  local default_secure="$4"
+  local secure_choice
+  local secure_default_choice=1
+
+  [[ "$default_secure" == "true" ]] && secure_default_choice=2
+  ensure_curl || return 1
+
+  while true; do
+    prompt_optional LAVA_HOST "Lavalink host" "$default_host"
+    prompt_optional LAVA_PORT "Lavalink port" "$default_port"
+    valid_port "$LAVA_PORT" || {
+      echo "Port không hợp lệ."
+      continue
+    }
+
+    read -r -s -p "Lavalink authorization [Enter để giữ giá trị hiện tại]: " LAVA_AUTH
+    echo
+    LAVA_AUTH="${LAVA_AUTH:-$default_auth}"
+
+    echo "Secure: 1) HTTP/WSS  2) HTTPS/WSS"
+    read -r -p "Chọn [$secure_default_choice]: " secure_choice
+    if [[ "$secure_choice" == "2" ]]; then
+      LAVA_SECURE=true
+    elif [[ "$secure_choice" == "1" ]]; then
+      LAVA_SECURE=false
+    else
+      LAVA_SECURE="$default_secure"
+    fi
+
+    echo "Đang kiểm tra Lavalink tại $LAVA_HOST:$LAVA_PORT..."
+    if test_lavalink "$LAVA_HOST" "$LAVA_PORT" "$LAVA_AUTH" "$LAVA_SECURE"; then
+      echo "Kết nối Lavalink thành công."
+      return
+    fi
+    echo "Không nhận được HTTP 200 từ /v4/info. Kiểm tra host, port, secure và authorization."
+  done
+}
+
+write_initial_config() {
+  local admin_escaped token_escaped client_escaped status_escaped name_escaped host_escaped auth_escaped
+  admin_escaped="$(escape_sed "$BOT_ADMIN")"
+  token_escaped="$(escape_sed "$BOT_TOKEN")"
+  client_escaped="$(escape_sed "$BOT_CLIENT_ID")"
+  status_escaped="$(escape_sed "$BOT_STATUS")"
+  name_escaped="$(escape_sed "$BOT_ACTIVITY_TEXT")"
+  host_escaped="$(escape_sed "$LAVA_HOST")"
+  auth_escaped="$(escape_sed "$LAVA_AUTH")"
+
+  sed -i -E \
+    -e "s|^[[:space:]]*adminId:.*|  adminId: \"$admin_escaped\",|" \
+    -e "s|^[[:space:]]*token:.*|  token: \"$token_escaped\",|" \
+    -e "s|^[[:space:]]*clientId:.*|  clientId: \"$client_escaped\",|" \
+    -e "0,/^[[:space:]]*host:/s|^[[:space:]]*host:.*|      host: \"$host_escaped\",|" \
+    -e "0,/^[[:space:]]*port:/s|^[[:space:]]*port:.*|      port: $LAVA_PORT,|" \
+    -e "0,/^[[:space:]]*authorization:/s|^[[:space:]]*authorization:.*|      authorization: \"$auth_escaped\",|" \
+    -e "0,/^[[:space:]]*secure:/s|^[[:space:]]*secure:.*|      secure: $LAVA_SECURE,|" \
+    -e "0,/^[[:space:]]*status:/s|^[[:space:]]*status:.*|      status: \"$status_escaped\",|" \
+    -e "0,/^[[:space:]]*name:/s|^[[:space:]]*name:.*|        name: \"$name_escaped\",|" \
+    -e "0,/^[[:space:]]*type:/s|^[[:space:]]*type:.*|        type: $BOT_ACTIVITY_TYPE,|" \
+    -e "0,/^[[:space:]]*state:/s|^[[:space:]]*state:.*|        state: \"$name_escaped\",|" \
+    config.js
+
+  chmod 600 config.js
+}
+
+update_lavalink_config() {
+  local host_escaped auth_escaped
+  host_escaped="$(escape_sed "$LAVA_HOST")"
+  auth_escaped="$(escape_sed "$LAVA_AUTH")"
+
+  sed -i -E \
+    -e "0,/^[[:space:]]*host:/s|^[[:space:]]*host:.*|      host: \"$host_escaped\",|" \
+    -e "0,/^[[:space:]]*port:/s|^[[:space:]]*port:.*|      port: $LAVA_PORT,|" \
+    -e "0,/^[[:space:]]*authorization:/s|^[[:space:]]*authorization:.*|      authorization: \"$auth_escaped\",|" \
+    -e "0,/^[[:space:]]*secure:/s|^[[:space:]]*secure:.*|      secure: $LAVA_SECURE,|" \
+    config.js
+  chmod 600 config.js
+}
+
+ensure_config() {
+  if [[ -f config.js ]]; then
+    return
+  fi
+
+  [[ -f config_example.js ]] || {
+    echo "Thiếu config_example.js."
+    return 1
+  }
+
+  cp config_example.js config.js
+  echo "Thiết lập config.js lần đầu."
+  prompt_required BOT_ADMIN "Discord Admin ID: "
+  prompt_required BOT_TOKEN "Discord Bot Token: " true
+  prompt_required BOT_CLIENT_ID "Discord Client ID: "
+
+  echo "Trạng thái: 1) online  2) idle  3) dnd  4) invisible"
+  read -r -p "Chọn [1]: " status_choice
+  case "$status_choice" in
+    2) BOT_STATUS=idle ;;
+    3) BOT_STATUS=dnd ;;
+    4) BOT_STATUS=invisible ;;
+    *) BOT_STATUS=online ;;
+  esac
+
+  prompt_optional BOT_ACTIVITY_TEXT "Nội dung activity" "Playing Music | /play"
+  echo "Loại activity: 0) Playing  1) Streaming  2) Listening  3) Watching  4) Bóng bóng  5) Competing"
+  read -r -p "Chọn [3]: " type_choice
+  case "$type_choice" in
+    0|1|2|3|4|5) BOT_ACTIVITY_TYPE="$type_choice" ;;
+    *) BOT_ACTIVITY_TYPE=3 ;;
+  esac
+
+  collect_lavalink_configuration 127.0.0.1 2333 youshallnotpass false
+  write_initial_config
+  ensure_api_environment
+  echo "Đã tạo config.js. API web đang tắt mặc định."
+}
 
 check_lavalink() {
-    echo ""
-    echo "=========================================="
-    echo "🔍 ĐANG TÌM HIỂU THÔNG TIN MÁY CHỦ LAVALINK..."
-    
-    # Trích xuất thông số Lavalink trực tiếp từ config.js
-    lava_host=$(grep 'host: "' config.js | head -n 1 | awk -F '"' '{print $2}' || true)
-    lava_port=$(grep 'port: ' config.js | head -n 1 | awk -F ' ' '{print $2}' | tr -d ',' || true)
-    lava_auth=$(grep 'authorization: "' config.js | head -n 1 | awk -F '"' '{print $2}' || true)
-    lava_secure=$(grep 'secure: ' config.js | head -n 1 | awk -F ' ' '{print $2}' | tr -d ',' || true)
+  ensure_curl || return
+  read_lavalink_values || return
+  local protocol=http
+  [[ "$CURRENT_LAVA_SECURE" == "true" ]] && protocol=https
+  echo "Kiểm tra $protocol://$CURRENT_LAVA_HOST:$CURRENT_LAVA_PORT/v4/info"
 
-    if [[ "$lava_secure" == "true" ]]; then
-        proto="https"
-    else
-        proto="http"
-    fi
+  if test_lavalink "$CURRENT_LAVA_HOST" "$CURRENT_LAVA_PORT" "$CURRENT_LAVA_AUTH" "$CURRENT_LAVA_SECURE"; then
+    echo "Lavalink đang trực tuyến."
+  else
+    echo "Không thể kết nối Lavalink. Kiểm tra cấu hình hoặc node."
+  fi
+}
 
-    echo "📡 Đang Ping: $proto://$lava_host:$lava_port"
-    
-    # Truy vấn API /info của Lavalink
-    info_json=$(curl -m 5 -s -H "Authorization: $lava_auth" "$proto://$lava_host:$lava_port/v4/info" || echo "FAILED")
-    
-    if [[ "$info_json" != "FAILED" && "$info_json" == *"version"* ]]; then
-        echo "✅ TRẠNG THÁI: TRỰC TUYẾN & SẴN SÀNG NHẬN BOT"
-        if command -v jq &> /dev/null; then
-            version=$(echo "$info_json" | jq -r '.version' | cut -d'-' -f1)
-            sources=$(echo "$info_json" | jq -r '.sourceManagers | join(", ")')
-            plugins=$(echo "$info_json" | jq -r '.plugins[].name' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-            echo "   🔹 Phiên bản Lavalink: $version"
-            echo "   🔹 Nguồn Nhạc Cung Cấp: $sources"
-            echo "   🔹 Các Tiện Ích Gắn Thêm: $plugins"
-        else
-            echo "   (Đã ping thành công nhưng Hệ điều hành của bạn thiếu 'jq' để dịch kết quả JSON)"
-        fi
-        
-        # Truy vấn API /stats của Lavalink
-        stats_json=$(curl -m 5 -s -H "Authorization: $lava_auth" "$proto://$lava_host:$lava_port/v4/stats" || echo "FAILED")
-        if [[ "$stats_json" != "FAILED" && "$stats_json" == *"players"* ]]; then
-            if command -v jq &> /dev/null; then
-                players=$(echo "$stats_json" | jq -r '.players')
-                uptime=$(echo "$stats_json" | jq -r '.uptime')
-                uptime_days=$((uptime / 86400000))
-                uptime_hours=$(((uptime % 86400000) / 3600000))
-                
-                echo "   🔹 Máy chủ đã hoạt động liên tục: ${uptime_days} ngày, ${uptime_hours} giờ"
-                echo "   🔹 Số cuộc gọi nhạc đang chạy: $players (players)"
-            fi
-        fi
-        
-    else
-        echo "❌ TRẠNG THÁI: NGOẠI TUYẾN hoặc BỊ CHẶN (Không thể kết nối / Sai Auth)"
-    fi
-    echo "=========================================="
-    echo ""
+deploy_commands() {
+  require_docker || return
+  [[ -f config.js ]] || {
+    echo "Hãy thiết lập config.js trước."
+    return
+  }
+  echo "Đang đăng ký slash command lên Discord..."
+  compose run --rm --no-deps discordmusicbot npm run deploy
+}
+
+start_stack() {
+  if api_is_enabled; then
+    compose --profile web-api up -d --remove-orphans discordmusicbot caddy
+  else
+    compose --profile web-api stop caddy >/dev/null 2>&1 || true
+    compose up -d --remove-orphans discordmusicbot
+  fi
+}
+
+rebuild_bot() {
+  require_docker || return
+  [[ -f config.js ]] || {
+    echo "Hãy chạy mục Thiết lập bot trước."
+    return
+  }
+  ensure_api_environment
+  mkdir -p data
+  echo "Đang build lại image bot..."
+  compose build --pull discordmusicbot
+  start_stack
+  echo "Bot đã được build và khởi động."
+}
+
+setup_bot() {
+  install_docker_if_needed || return
+  ensure_config || return
+  rebuild_bot
+  deploy_commands
+  echo "Hoàn tất. Dùng mục Quản trị bot để xem log hoặc thay đổi Lavalink."
+}
+
+change_lavalink() {
+  [[ -f config.js ]] || {
+    echo "Hãy thiết lập config.js trước."
+    return
+  }
+  read_lavalink_values
+  collect_lavalink_configuration "$CURRENT_LAVA_HOST" "$CURRENT_LAVA_PORT" "$CURRENT_LAVA_AUTH" "$CURRENT_LAVA_SECURE"
+  update_lavalink_config
+  echo "Đã lưu node Lavalink mới. Khởi động lại bot để áp dụng."
+}
+
+restart_bot() {
+  require_docker || return
+  if api_is_enabled; then
+    compose --profile web-api restart discordmusicbot caddy
+  else
+    compose restart discordmusicbot
+  fi
+  echo "Đã khởi động lại bot."
+}
+
+stop_bot() {
+  require_docker || return
+  compose --profile web-api down --remove-orphans
+  echo "Đã dừng bot và API web (nếu đang chạy)."
+}
+
+show_logs() {
+  require_docker || return
+  compose logs -f --tail=100 discordmusicbot
+}
+
+show_guide() {
+  cat <<'GUIDE'
+
+HƯỚNG DẪN NHANH
+- Sửa commands, events, lib hoặc util: chọn Build lại bot.
+- Thêm/đổi tên slash command: chọn Deploy slash command, rồi Build lại bot.
+- Đổi node Lavalink: dùng mục Thay đổi Lavalink, sau đó Restart bot.
+- API web: chỉ bật khi đã có domain trỏ về VPS và mở cổng 80/443.
+- Không cần xoá data khi build; dữ liệu runtime được giữ trong thư mục data.
+
+GUIDE
+  pause_menu
+}
+
+setup_web_api() {
+  require_docker || return
+  [[ -f config.js ]] || {
+    echo "Hãy thiết lập bot trước."
+    return
+  }
+  ensure_api_environment
+
+  local default_domain domain default_port api_port
+  default_domain="$(get_env_value PUBLIC_STATUS_DOMAIN)"
+  prompt_optional domain "Tên miền API web, ví dụ status.example.com" "${default_domain:-status.example.com}"
+  [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || {
+    echo "Tên miền không hợp lệ."
+    return
+  }
+
+  default_port="$(get_env_value PUBLIC_STATUS_PORT)"
+  prompt_optional api_port "Cổng nội bộ API" "${default_port:-3000}"
+  valid_port "$api_port" || {
+    echo "Port không hợp lệ."
+    return
+  }
+
+  echo "Yêu cầu: DNS của $domain phải trỏ về VPS, đồng thời mở TCP 80 và 443."
+  read -r -p "Tiếp tục bật API web? [y/N]: " confirm
+  [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return
+
+  set_env_value PUBLIC_STATUS_API_ENABLED true
+  set_env_value PUBLIC_STATUS_HOST 127.0.0.1
+  set_env_value PUBLIC_STATUS_PORT "$api_port"
+  set_env_value PUBLIC_STATUS_DOMAIN "$domain"
+
+  compose --profile web-api up -d --force-recreate discordmusicbot caddy
+  echo "API web đã bật: https://$domain/api/public-status"
+  echo "Caddy sẽ tự xin/gia hạn HTTPS sau khi DNS và cổng 80/443 sẵn sàng."
+}
+
+stop_web_api() {
+  require_docker || return
+  ensure_api_environment
+  set_env_value PUBLIC_STATUS_API_ENABLED false
+  compose --profile web-api stop caddy >/dev/null 2>&1 || true
+  compose --profile web-api rm -f caddy >/dev/null 2>&1 || true
+  compose up -d --force-recreate discordmusicbot
+  echo "Đã tắt API web và Caddy. Bot nhạc vẫn chạy."
+}
+
+show_web_api_status() {
+  require_docker || return
+  ensure_api_environment
+  if api_is_enabled; then
+    echo "API web: đang bật"
+    echo "Tên miền: $(get_env_value PUBLIC_STATUS_DOMAIN)"
+    echo "Endpoint: https://$(get_env_value PUBLIC_STATUS_DOMAIN)/api/public-status"
+  else
+    echo "API web: đang tắt"
+  fi
+  compose --profile web-api ps
+}
+
+web_api_menu() {
+  while true; do
+    echo
+    echo "=== API WEB CÔNG KHAI ==="
+    echo "1) Bật / cấu hình API web"
+    echo "2) Tắt hoàn toàn API web"
+    echo "3) Xem trạng thái"
+    echo "0) Quay lại"
+    read -r -p "Chọn: " choice
+    case "$choice" in
+      1) setup_web_api ;;
+      2) stop_web_api ;;
+      3) show_web_api_status ;;
+      0) return ;;
+      *) echo "Lựa chọn không hợp lệ." ;;
+    esac
+  done
+}
+
+manage_bot_menu() {
+  while true; do
+    echo
+    echo "=== QUẢN TRỊ BOT ==="
+    echo "1) Build lại bot từ source hiện tại"
+    echo "2) Kiểm tra Lavalink"
+    echo "3) Thay đổi Lavalink"
+    echo "4) Tắt bot"
+    echo "5) Khởi động lại bot"
+    echo "6) Xem log bot"
+    echo "7) Hướng dẫn nhanh"
+    echo "8) Deploy slash command"
+    echo "0) Quay lại"
+    read -r -p "Chọn: " choice
+    case "$choice" in
+      1) rebuild_bot ;;
+      2) check_lavalink; pause_menu ;;
+      3) change_lavalink ;;
+      4) stop_bot ;;
+      5) restart_bot ;;
+      6) show_logs ;;
+      7) show_guide ;;
+      8) deploy_commands ;;
+      0) return ;;
+      *) echo "Lựa chọn không hợp lệ." ;;
+    esac
+  done
 }
 
 while true; do
-    echo "========================================================"
-    echo "           🎵 CHƯƠNG TRÌNH ĐIỀU KHIỂN BOT VPS 🎵        "
-    echo "========================================================"
-    echo "1. ⚙️  Chỉ Build (Rèn) lại Image từ Code hiện tại"
-    echo "2. 📡 Kiểm tra tình trạng Máy Chủ Lavalink hiện tại"
-    echo "3. 🔄 Thay đổi Máy chủ Lavalink (Chỉ sửa Config)"
-    echo "4. 🛑 Tắt Bot (Stop)"
-    echo "5. ♻️  Chỉ Khởi Động Lại Bot nhanh (Restart)"
-    echo "6. 📋 Xem trực tiếp Màn hình Log Bot (Nhật ký lỗi)"
-    echo "7. 📖 Bảng hướng dẫn nhanh"
-    echo "0. ❌ Thoát (Bot vẫn chạy ngầm)"
-    echo "========================================================"
-    read -p "Nhập số để chọn (0-7): " choice
-    
-    case $choice in
-        1)
-            echo "🛑 Đang tháo gỡ nền tảng cũ..."
-            compose down --remove-orphans 2>/dev/null || true
-            # Đảm bảo thư mục data tồn tại
-            mkdir -p ./data
-            # Xoá db.json cũ ở root nếu còn sót
-            rm -rf ./db.json 2>/dev/null || true
-            echo "⚙️  Đang rèn (Build) lại Image Docker mã nguồn..."
-            compose build --no-cache discordmusicbot
-            echo "🚀 Đang kích hoạt Bot..."
-            compose up -d discordmusicbot
-            check_lavalink
-            echo "📋 Đang mở Nhật ký hiển thị... (Bấm Ctrl+C để thoát Nhật ký)"
-            compose logs -f discordmusicbot
-            ;;
-        2)
-            check_lavalink
-            read -p "Nhấn thao tác Enter để quay lại Menú điều khiển..."
-            ;;
-        3)
-            echo "🔄 QUY TRÌNH THAY ĐỔI MÁY CHỦ LAVALINK"
-            while true; do
-                read -p "1. Máy chủ (VD: lavalink.example.com): " lava_host
-                while [[ -z "$lava_host" ]]; do read -p "❌ Trống! Điền lại Máy chủ: " lava_host; done
+  echo
+  echo "========================================"
+  echo "       QUẢN LÝ DISCORD MUSIC BOT"
+  echo "========================================"
+  echo "1) Thiết lập bot lần đầu / build bot"
+  echo "2) Quản trị bot"
+  echo "3) API web công khai (tuỳ chọn)"
+  echo "0) Thoát"
+  read -r -p "Chọn: " choice
 
-                read -p "2. Cổng Cắm (Port) (VD: 443, 80 hoặc 2333): " lava_port
-                while [[ -z "$lava_port" ]]; do read -p "❌ Trống! Điền lại Port: " lava_port; done
-
-                read -r -s -p "3. Mật khẩu Authorization: " lava_auth
-                echo
-                while [[ -z "$lava_auth" ]]; do
-                    read -r -s -p "❌ Trống! Điền lại Authorization: " lava_auth
-                    echo
-                done
-
-                echo "4. Lớp Bảo Mật Secure (Là HTTPS hay WSS mới có):"
-                echo "   1) Chọn False (Nền HTTP)"
-                echo "   2) Chọn True (Nền HTTPS)"
-                read -p "   Chọn (1/2) [Enter=1]: " secure_input
-
-                if [[ "$secure_input" == "2" ]]; then
-                    lava_secure="true"
-                    proto="https"
-                else
-                    lava_secure="false"
-                    proto="http"
-                fi
-
-                echo "⏳ Đang thử đập cửa gọi Lavalink ($proto://$lava_host:$lava_port)..."
-                status_code=$(curl -m 5 -s -o /dev/null -w "%{http_code}" -H "Authorization: $lava_auth" "$proto://$lava_host:$lava_port/v4/info" || echo "failed")
-                
-                if [[ "$status_code" == "200" ]]; then
-                    echo "✅ Xác thực Tốt! Bắt đầu tráo dòng config..."
-                    break
-                else
-                    echo "❌ Bị trả về Mã: $status_code. Hãy chọn Port hoặc Host khác."
-                fi
-            done
-            
-            # Escape for sed
-            lava_host_esc=$(echo "$lava_host" | sed -e 's/[\/&]/\\&/g')
-            lava_auth_esc=$(echo "$lava_auth" | sed -e 's/[\/&]/\\&/g')
-            
-            sed -i "s|^.*host: .*|\t\t\thost: \"$lava_host_esc\",|g" config.js
-            sed -i "s|^.*port: .*|\t\t\tport: $lava_port,|g" config.js
-            sed -i "s|^.*authorization: .*|\t\t\tauthorization: \"$lava_auth_esc\",|g" config.js
-            sed -i "s|^.*secure: .*|\t\t\tsecure: $lava_secure,|g" config.js
-            echo ""
-            echo "✅ Đã ghi cấu hình Lavalink mới vào config.js thành công!"
-            echo "👉 Bây giờ sếp vào Discord gõ lệnh /reload để Bot nạp lại cấu hình mới nhé!"
-            echo ""
-            read -p "Nhấn Enter để quay lại Menu..."
-            ;;
-        4)
-            echo "🛑 Đang cắt điện toàn bộ hệ thống Bot..."
-            compose down
-            echo "✅ Gỡ trạm thành công!"
-            ;;
-        5)
-            echo "♻️  Đang Reboot nóng cho Bot..."
-            compose restart discordmusicbot
-            echo "✅ Kích xong!"
-            ;;
-        6)
-            echo "📋 Đang theo dõi cửa sổ Nhật ký (Logs)..."
-            echo "   (Ấn Ctrl + C để ngừng theo dõi)"
-            compose logs -f discordmusicbot
-            ;;
-        7)
-            echo ""
-            echo "╔══════════════════════════════════════════════════════════╗"
-            echo "║           📖 BẢNG HƯỚNG DẪN CẬP NHẬT NHANH            ║"
-            echo "╠══════════════════════════════════════════════════════════╣"
-            echo "║ Thay đổi gì?              │ Cần làm gì?                ║"
-            echo "╠═══════════════════════════╪════════════════════════════ ╣"
-            echo "║ Sửa code lệnh, logic,     │ /reload trong Discord      ║"
-            echo "║ events, lib               │                            ║"
-            echo "╠═══════════════════════════╪════════════════════════════ ╣"
-            echo "║ Sửa config.js             │ /reload hoặc /lavalink     ║"
-            echo "║ (Lavalink, adminId...)     │                            ║"
-            echo "╠═══════════════════════════╪════════════════════════════ ╣"
-            echo "║ Thêm file lệnh .js mới    │ Restart Docker (Mục 5)     ║"
-            echo "╠═══════════════════════════╪════════════════════════════ ╣"
-            echo "║ Cài thêm thư viện npm     │ Rebuild Docker (Mục 1)     ║"
-            echo "║ (npm install xyz)         │                            ║"
-            echo "╠═══════════════════════════╪════════════════════════════ ╣"
-            echo "║ Sửa Dockerfile,           │ Rebuild Docker (Mục 1)     ║"
-            echo "║ package.json              │                            ║"
-            echo "╚══════════════════════════════════════════════════════════╝"
-            echo ""
-            read -p "Nhấn Enter để quay lại Menu..."
-            ;;
-        0)
-            echo "👋 Thoát! Bot vẫn đang tự chạy đằng sau."
-            exit 0
-            ;;
-        *)
-            echo "❌ Bạn nhập sai số, mời bấm lại."
-            ;;
-    esac
+  case "$choice" in
+    1) setup_bot ;;
+    2) manage_bot_menu ;;
+    3) web_api_menu ;;
+    0) exit 0 ;;
+    *) echo "Lựa chọn không hợp lệ." ;;
+  esac
 done

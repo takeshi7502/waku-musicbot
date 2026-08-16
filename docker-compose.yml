@@ -5,6 +5,10 @@ services:
     image: discordmusicbot:local
     network_mode: host
     restart: always
+    environment:
+      PUBLIC_STATUS_API_ENABLED: ${PUBLIC_STATUS_API_ENABLED:-false}
+      PUBLIC_STATUS_HOST: ${PUBLIC_STATUS_HOST:-127.0.0.1}
+      PUBLIC_STATUS_PORT: ${PUBLIC_STATUS_PORT:-3000}
     volumes:
       - ./config.js:/usr/src/app/config.js:ro
       - ./commands:/usr/src/app/commands
@@ -19,13 +23,14 @@ services:
     image: caddy:2-alpine
     container_name: musicbot-api-caddy
     restart: always
+    profiles:
+      - web-api
     depends_on:
       - discordmusicbot
-    ports:
-      - "8075:80"
-      - "8443:443"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
+    environment:
+      PUBLIC_STATUS_DOMAIN: ${PUBLIC_STATUS_DOMAIN:-localhost}
+      PUBLIC_STATUS_PORT: ${PUBLIC_STATUS_PORT:-3000}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

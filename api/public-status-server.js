@@ -79,8 +79,6 @@ async function getPublicStatus(client) {
     };
   }
 
-  await user.fetch(true).catch(() => null);
-
   const allPlayers = client.manager?.players ? [...client.manager.players.values()] : [];
   const playingRooms = allPlayers.filter(player => player.playing && !player.paused).length;
   const lavalinkNodes = getLavalinkNodes(client);
@@ -117,7 +115,8 @@ async function getPublicStatus(client) {
 }
 
 function startPublicStatusApi(client) {
-  const port = Number(process.env.PUBLIC_STATUS_PORT || process.env.PORT || client.config?.publicStatusPort || 3000);
+  const port = Number(process.env.PUBLIC_STATUS_PORT || client.config?.publicStatusApi?.port || 3000);
+  const host = process.env.PUBLIC_STATUS_HOST || client.config?.publicStatusApi?.host || "127.0.0.1";
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
@@ -145,8 +144,8 @@ function startPublicStatusApi(client) {
     }
   });
 
-  server.listen(port, () => {
-    console.log(`[PUBLIC STATUS API] Listening on port: ${port}`);
+  server.listen(port, host, () => {
+    console.log(`[PUBLIC STATUS API] Listening on ${host}:${port}`);
   });
 
   server.on("error", error => {
