@@ -27,6 +27,7 @@
   },
   "player": {
     "nowPlaying": "Now Playing",
+    "nowPlayingOn": "Now Playing on {platform}",
     "requestedBy": "Requested by",
     "duration": "Duration",
     "playbackDetails": "Loop: {loop} • AutoQueue: {autoQueue} • Volume: {volume}%",

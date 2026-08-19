@@ -24,8 +24,7 @@ const command = new SlashCommand()
     const embed = new EmbedBuilder()
       .setColor(client.config.embedColor)
       .setAuthor({
-        name: t("about.author", { botName: client.user.username }),
-        iconURL: client.config.iconURL
+        name: t("about.author", { botName: client.user.username })
       })
       .setDescription(t("about.summary"))
       .addFields(

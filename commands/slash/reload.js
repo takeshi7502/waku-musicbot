@@ -60,7 +60,7 @@ const command = new SlashCommand().setName("reload").setDescription(t("reload.au
     delete require.cache[getConfigPath];
     const { sanitizeConfig } = require("../../util/getConfig");
 
-    // Cập nhật config mới vào client (có sanitize màu và iconURL)
+    // Cập nhật config mới vào client (đã sanitize màu embed)
     client.config = sanitizeConfig(newConfig);
     await client.applyPersistedRuntimeConfig();
     reloadLog.push(t("reload.auto_191"));

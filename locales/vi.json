@@ -27,6 +27,7 @@
   },
   "player": {
     "nowPlaying": "Đang phát",
+    "nowPlayingOn": "Đang Phát trên {platform}",
     "requestedBy": "Yêu cầu từ",
     "duration": "Thời lượng",
     "playbackDetails": "Lặp: {loop} • Tự động thêm bài: {autoQueue} • Âm lượng: {volume}%",

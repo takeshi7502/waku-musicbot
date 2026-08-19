@@ -8,6 +8,9 @@ const {
 const {
   t
 } = require("../../util/i18n");
+const {
+  refreshNowPlayingPanel
+} = require("../../util/nowPlayingEmbed");
 module.exports = {
   command: new ContextMenuCommandBuilder().setName(t("play.auto_259")).setType(3),
   /**
@@ -80,12 +83,8 @@ module.exports = {
       }).catch(() => {});
     }
     if (res.loadType === "track" || res.loadType === "search") {
+      const hadCurrentTrack = Boolean(player.queue.current);
       await player.queue.add(res.tracks[0]);
-      if (!player.playing && !player.paused && player.queue.tracks.length > 0) {
-        await player.play({
-          paused: false
-        });
-      }
       var title = escapeMarkdown(res.tracks[0].info.title);
       title = title.replace(/\]/g, "");
       title = title.replace(/\[/g, "");
@@ -104,15 +103,17 @@ module.exports = {
       await interaction.editReply({
         embeds: [new EmbedBuilder().setColor(client.config.embedColor).setDescription(addText)]
       }).catch(() => {});
-    }
-    if (res.loadType === "playlist") {
-      await player.queue.add(res.tracks);
-      const totalSize = player.queue.tracks.length + (player.queue.current ? 1 : 0);
       if (!player.playing && !player.paused && player.queue.tracks.length > 0) {
         await player.play({
           paused: false
         });
       }
+      if (hadCurrentTrack) await refreshNowPlayingPanel(client, player).catch(() => {});
+    }
+    if (res.loadType === "playlist") {
+      const hadCurrentTrack = Boolean(player.queue.current);
+      await player.queue.add(res.tracks);
+      const totalSize = player.queue.tracks.length + (player.queue.current ? 1 : 0);
       const playlistDuration = res.tracks.reduce((a, t) => a + (t.info.duration || 0), 0);
       const durationStr = client.ms(playlistDuration, {
         colonNotation: true,
@@ -130,6 +131,12 @@ module.exports = {
       await interaction.editReply({
         embeds: [new EmbedBuilder().setColor(client.config.embedColor).setDescription(addText)]
       }).catch(() => {});
+      if (!player.playing && !player.paused && player.queue.tracks.length > 0) {
+        await player.play({
+          paused: false
+        });
+      }
+      if (hadCurrentTrack) await refreshNowPlayingPanel(client, player).catch(() => {});
     }
     if (ret) setTimeout(() => ret.delete().catch(() => {}), 10000);
     return ret;

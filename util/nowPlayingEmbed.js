@@ -3,6 +3,16 @@ const { translate } = require("./i18n");
 
 const PROGRESS_SEGMENTS = 12;
 const CODE_TICK = String.fromCharCode(96);
+const SOURCE_ICON_URLS = {
+  youtube: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/youtube.png",
+  soundcloud: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/soundcloud.png",
+  spotify: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/spotify.png"
+};
+const SOURCE_NAMES = {
+  youtube: "YouTube",
+  soundcloud: "SoundCloud",
+  spotify: "Spotify"
+};
 
 function formatTime(milliseconds) {
   const totalSeconds = Math.max(0, Math.floor((milliseconds || 0) / 1000));
@@ -22,6 +32,22 @@ function buildProgressBar(position, duration) {
 
 function translateForPlayer(client, player, key, vars = {}) {
   return translate(client.guildLanguages?.get(player.guildId) || "vi", key, vars);
+}
+
+function getTrackSource(track) {
+  const sourceName = String(track.info.sourceName || "").toLowerCase();
+  if (sourceName.includes("youtube") || sourceName === "yt") return "youtube";
+  if (sourceName.includes("soundcloud")) return "soundcloud";
+  if (sourceName.includes("spotify")) return "spotify";
+
+  try {
+    const hostname = new URL(track.info.uri).hostname.toLowerCase();
+    if (hostname === "youtu.be" || hostname.endsWith("youtube.com")) return "youtube";
+    if (hostname.endsWith("soundcloud.com")) return "soundcloud";
+    if (hostname.endsWith("spotify.com")) return "spotify";
+  } catch {}
+
+  return null;
 }
 
 function buildNowPlayingEmbed(client, player, track) {
@@ -49,11 +75,16 @@ function buildNowPlayingEmbed(client, player, track) {
     ? "[**" + title + "**](" + track.info.uri + ")\n" + progress
     : "**" + title + "**\n" + progress;
 
+  const source = getTrackSource(track);
+  const author = {
+    name: source
+      ? translateForPlayer(client, player, "player.nowPlayingOn", { platform: SOURCE_NAMES[source] })
+      : translateForPlayer(client, player, "player.nowPlaying")
+  };
+  if (source) author.iconURL = SOURCE_ICON_URLS[source];
+
   const embed = client.Embed()
-    .setAuthor({
-      name: translateForPlayer(client, player, "player.nowPlaying"),
-      iconURL: client.config.iconURL
-    })
+    .setAuthor(author)
     .setDescription(description)
     .addFields({
       name: translateForPlayer(client, player, "player.requestedBy"),
@@ -65,7 +96,7 @@ function buildNowPlayingEmbed(client, player, track) {
       inline: true
     }, {
       name: " ",
-      value: playbackDetails,
+      value: "-# " + playbackDetails,
       inline: false
     });
 

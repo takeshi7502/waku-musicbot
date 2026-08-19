@@ -8,6 +8,9 @@ const {
   ActionRowBuilder,
   StringSelectMenuBuilder
 } = require("discord.js");
+const {
+  refreshNowPlayingPanel
+} = require("../../util/nowPlayingEmbed");
 const command = new SlashCommand().setName("search").setDescription(t("search.auto_212")).addStringOption(option => option.setName("query").setDescription(t("search.auto_213")).setRequired(true)).setRun(async (client, interaction, options) => {
   let channel = await client.getChannel(client, interaction);
   if (!channel) {
@@ -96,17 +99,12 @@ const command = new SlashCommand().setName("search").setDescription(t("search.au
         trackForPlay = await player?.search({
           query: uriFromCollector
         }, interaction.user);
+        const hadCurrentTrack = Boolean(player?.queue?.current);
         await player?.queue?.add(trackForPlay.tracks[0]);
-        if (!player?.playing && !player?.paused && player?.queue?.tracks?.length > 0) {
-          await player?.play({
-            paused: false
-          });
-        }
-        i.editReply({
+        await i.editReply({
           content: null,
           embeds: [new EmbedBuilder().setAuthor({
-            name: t("search.auto_217"),
-            iconURL: client.config.iconURL
+            name: t("search.auto_217")
           }).setURL(trackForPlay.tracks[0].info.uri).setThumbnail(trackForPlay.tracks[0].info.artworkUrl || null).setDescription(`[${trackForPlay?.tracks[0]?.info?.title}](${trackForPlay?.tracks[0]?.info?.uri})` || t("search.auto_218")).addFields({
             name: t("search.auto_219"),
             value: `<@${interaction.user.id}>`,
@@ -119,7 +117,13 @@ const command = new SlashCommand().setName("search").setDescription(t("search.au
             inline: true
           }).setColor(client.config.embedColor)],
           components: []
-        });
+        }).catch(() => {});
+        if (!player?.playing && !player?.paused && player?.queue?.tracks?.length > 0) {
+          await player?.play({
+            paused: false
+          });
+        }
+        if (hadCurrentTrack) await refreshNowPlayingPanel(client, player).catch(() => {});
       }
     }));
     tracksCollector.on("end", async i => client.runWithGuildLanguage(interaction.guildId, async () => {

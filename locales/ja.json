@@ -27,6 +27,7 @@
   },
   "player": {
     "nowPlaying": "プレイ中",
+    "nowPlayingOn": "{platform}で再生中",
     "requestedBy": "リクエスト者",
     "duration": "間隔",
     "playbackDetails": "ループ: {loop} • 自動追加: {autoQueue} • 音量: {volume}%",

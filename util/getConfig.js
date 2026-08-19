@@ -2,11 +2,6 @@ const { t } = require("./i18n");
 const dotenv = require("dotenv").config();
 
 function sanitizeConfig(config) {
-  // Discord chỉ chấp nhận HTTPS URL cho iconURL trong embed
-  if (config.iconURL && !/^https?:\/\//i.test(config.iconURL)) {
-    config.iconURL = undefined;
-  }
-
   // Discord chỉ chấp nhận hex màu 6 ký tự (#RRGGBB)
   // #RRGGBBAA (8 ký tự) → cắt bỏ 2 ký tự alpha
   if (config.embedColor && typeof config.embedColor === "string") {

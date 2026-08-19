@@ -38,8 +38,7 @@ const command = new SlashCommand().setName("cmd").setDescription(t("cmd.auto_44"
   const helpEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
     name: t("cmd.auto_45", {
       var1: client.user.username
-    }),
-    iconURL: client.config.iconURL
+    })
   }).setTimestamp().setFooter({
     text: `Trang ${pageNo + 1} / ${maxPages}`
   });

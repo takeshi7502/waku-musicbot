@@ -83,7 +83,7 @@ module.exports = async (client, oldState, newState) => {
         var members = stateChange.channel.members.filter(member => !member.user.bot).size;
         if (members === 1 && player.paused && members !== player.prevMembers) {
           player.resume();
-          let playerResumed = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_284"), client.config.iconURL).setDescription(t("voice.currentlyPlaying", {
+          let playerResumed = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_284")).setDescription(t("voice.currentlyPlaying", {
             title: player.queue.current.info.title,
             url: player.queue.current.info.uri
           })).setFooter({
@@ -115,7 +115,7 @@ module.exports = async (client, oldState, newState) => {
       if (player.get("autoPause") === true && player.get("autoLeave") === false) {
         if (members === 0 && !player.paused && player.playing) {
           player.pause();
-          let playerPaused = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_286"), client.config.iconURL).setFooter({
+          let playerPaused = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_286")).setFooter({
             text: t("voiceStateUpdate.auto_287")
           });
           let pausedMessage = await client.channels.cache.get(player.textChannelId).send({
@@ -135,8 +135,7 @@ module.exports = async (client, oldState, newState) => {
             var currentMembers = stateChange.channel.members.filter(m => !m.user.bot).size;
             if (currentMembers === 0 && player.connected) {
               let leftEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-                name: t("voice.disconnected"),
-                iconURL: client.config.iconURL
+                name: t("voice.disconnected")
               }).setFooter({
                 text: t("voice.disconnectedNoMembers")
               }).setTimestamp();
@@ -158,8 +157,7 @@ module.exports = async (client, oldState, newState) => {
             var currentMembers = stateChange.channel.members.filter(m => !m.user.bot).size;
             if (currentMembers === 0 && player.connected) {
               let leftEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-                name: t("voice.disconnected"),
-                iconURL: client.config.iconURL
+                name: t("voice.disconnected")
               }).setFooter({
                 text: t("voice.disconnectedNoMembers")
               }).setTimestamp();
@@ -175,7 +173,7 @@ module.exports = async (client, oldState, newState) => {
       } else if (player.get("autoLeave") === true && player.get("autoPause") === false) {
         if (members === 0 && !player.paused && player.playing && twentyFourSeven) {
           player.pause();
-          let playerPaused = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_288"), client.config.iconURL).setFooter({
+          let playerPaused = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_288")).setFooter({
             text: t("voiceStateUpdate.auto_289")
           });
           let pausedMessage = await client.channels.cache.get(player.textChannelId).send({
@@ -186,8 +184,7 @@ module.exports = async (client, oldState, newState) => {
             var members = stateChange.channel.members.filter(member => !member.user.bot).size;
             if (members === 0 && player.connected) {
               let leftEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-                name: t("voice.disconnected"),
-                iconURL: client.config.iconURL
+                name: t("voice.disconnected")
               }).setFooter({
                 text: t("voice.disconnectedNoMembers")
               }).setTimestamp();
@@ -205,8 +202,7 @@ module.exports = async (client, oldState, newState) => {
         } else {
           if (members === 0 && player.connected) {
             let leftEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-              name: t("voice.disconnected"),
-              iconURL: client.config.iconURL
+              name: t("voice.disconnected")
             }).setFooter({
               text: t("voice.disconnectedNoMembers")
             }).setTimestamp();

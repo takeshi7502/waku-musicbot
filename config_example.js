@@ -44,7 +44,6 @@ module.exports = {
 			},
 		],
 	},
-	iconURL: "https://cdn.discordapp.com/attachments/1360438209645121620/1491891499116527747/youtube_1.png?ex=69d957bb&is=69d8063b&hm=aa1d3166fc1882fc5fe32e96fb75c63af75470430bc270cc89fef39a2ac310b3&", //- This icon will be in every embed's author field
 	// ====== PUBLIC STATUS API (optional) ======
 	publicStatusApi: {
 		enabled: false,

@@ -8,6 +8,9 @@ const {
 const {
   escapeMarkdown
 } = require("discord.js");
+const {
+  refreshNowPlayingPanel
+} = require("../../util/nowPlayingEmbed");
 
 /**
  * Lấy danh sách tất cả node đang connected, shuffle ngẫu nhiên
@@ -158,10 +161,8 @@ const command = new SlashCommand()
     }
 
     if (res.loadType === "track" || res.loadType === "search") {
+      const hadCurrentTrack = Boolean(player.queue.current);
       await player.queue.add(res.tracks[0]);
-      if (!player.playing && !player.paused && player.queue.tracks.length > 0) {
-        await player.play({ paused: false });
-      }
       let title = escapeMarkdown(res.tracks[0].info.title);
       title = title.replace(/\]/g, "").replace(/\[/g, "");
       const duration = res.tracks[0].info.isStream
@@ -179,13 +180,15 @@ const command = new SlashCommand()
           })
         )]
       }).catch(() => {});
-    }
-
-    if (res.loadType === "playlist") {
-      await player.queue.add(res.tracks);
       if (!player.playing && !player.paused && player.queue.tracks.length > 0) {
         await player.play({ paused: false });
       }
+      if (hadCurrentTrack) await refreshNowPlayingPanel(client, player).catch(() => {});
+    }
+
+    if (res.loadType === "playlist") {
+      const hadCurrentTrack = Boolean(player.queue.current);
+      await player.queue.add(res.tracks);
       const playlistDuration = res.tracks.reduce((a, track) => a + (track.info.duration || 0), 0);
       const durationStr = client.ms(playlistDuration, { colonNotation: true, secondsDecimalDigits: 0 });
       const playlistName = res.playlist?.name || "Playlist";
@@ -201,6 +204,10 @@ const command = new SlashCommand()
           })
         )]
       }).catch(() => {});
+      if (!player.playing && !player.paused && player.queue.tracks.length > 0) {
+        await player.play({ paused: false });
+      }
+      if (hadCurrentTrack) await refreshNowPlayingPanel(client, player).catch(() => {});
     }
 
     if (ret) setTimeout(() => ret.delete().catch(() => {}), 10000);

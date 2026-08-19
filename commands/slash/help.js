@@ -14,8 +14,7 @@ function buildHelpEmbed(client, commands, pageNo, maxPages) {
   const embed = new EmbedBuilder()
     .setColor(client.config.embedColor)
     .setAuthor({
-      name: t("help.auto_73", { var1: client.user.username }),
-      iconURL: client.config.iconURL
+      name: t("help.auto_73", { var1: client.user.username })
     })
     .setTimestamp()
     .setFooter({
