@@ -27,6 +27,33 @@ function getShuffledNodes(client) {
  * Thử search trên nhiều node cho đến khi thành công
  * @returns {{ res, node } | null}
  */
+async function getSpotifyFallbackQuery(query) {
+  let url;
+  try {
+    url = new URL(query);
+  } catch {
+    return null;
+  }
+
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  const trackIndex = pathParts.indexOf("track");
+  const isSpotifyTrack = url.hostname === "open.spotify.com" && /^[A-Za-z0-9]{22}$/.test(pathParts[trackIndex + 1] || "");
+  if (!isSpotifyTrack) return null;
+
+  try {
+    const response = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url.href)}`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (!response.ok) return null;
+
+    const { title } = await response.json();
+    return typeof title === "string" && title.trim() ? `ytsearch:${title.trim()}` : null;
+  } catch {
+    return null;
+  }
+}
+
 async function searchWithFallback(player, query, user, nodes, client) {
   for (const node of nodes) {
     try {
@@ -101,7 +128,13 @@ const command = new SlashCommand()
     const query = options.getString("query", true);
 
     // Thử search qua danh sách node hợp lệ (sẽ chỉ là 1 node nếu đang phát nhạc)
-    const result = await searchWithFallback(player, query, interaction.user, nodesToTry, client);
+    let result = await searchWithFallback(player, query, interaction.user, nodesToTry, client);
+    if (!result) {
+      const spotifyFallbackQuery = await getSpotifyFallbackQuery(query);
+      if (spotifyFallbackQuery) {
+        result = await searchWithFallback(player, spotifyFallbackQuery, interaction.user, nodesToTry, client);
+      }
+    }
 
     if (!result) {
       console.log("Lavalink Search Error: All nodes failed for query:", query);
