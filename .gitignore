@@ -82,7 +82,6 @@ lavalink/*.log
 # Local-only build sources, plugin backups, and generated config templates
 lavalink/.build-lavasrc/
 lavalink/.plugin-backups/
-lavalink/example.application.yml
 # Experimental private cache sidecar (code, config, and cached media)
 lavalink/sophon-cache/
 # Backward-compatible ignore for old uppercase folder name
