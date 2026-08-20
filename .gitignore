@@ -1,0 +1,29 @@
+# Files that belong to the bot worktree, not this standalone Lavalink branch.
+config.js
+dashboard/
+data/
+lavalink/
+logs.log
+node_modules/
+package-lock.json
+
+# Private Lavalink runtime files.
+Lavalink.jar
+application.yml
+application_server.yml
+plugins/
+logs/
+*.log
+*.jar
+!status-plugin/gradle/wrapper/gradle-wrapper.jar
+
+# Local dashboard state and build/cache artifacts.
+status-dashboard/config.json
+status-dashboard/data/
+status-plugin/.gradle/
+status-plugin/build/
+.build-lavasrc/
+.plugin-backups/
+sophon-cache/
+yt-cipher/
+yt-dlp*
