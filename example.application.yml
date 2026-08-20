@@ -1,0 +1,123 @@
+# Copy this file to application.yml, then fill in your own secrets.
+# Do not commit application.yml.
+server:
+  port: 3333
+  # Use 127.0.0.1 when the bot and Lavalink share a host. For a remote bot,
+  # change this to 0.0.0.0 and restrict TCP 3333 in the firewall.
+  address: 127.0.0.1
+
+lavalink:
+  server:
+    password: "replace-with-a-long-lavalink-password"
+    sources:
+      # A compatible youtube-source plugin in ./plugins owns YouTube requests.
+      youtube: false
+    bufferDurationMs: 225
+    frameBufferDurationMs: 5000
+    youtubePlaylistLoadLimit: 3
+    opusEncodingQuality: 5
+    resamplingQuality: MEDIUM
+    trackStuckThresholdMs: 5000
+    playerUpdateInterval: 3
+    useSeekGhosting: true
+    soundcloudSearchEnabled: true
+    gc-warnings: true
+  plugins:
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
+      repository: "https://maven.lavalink.dev/releases"
+    - dependency: "com.github.topi314.lavasearch:lavasearch-plugin:1.0.0"
+      repository: "https://maven.lavalink.dev/releases"
+    - dependency: "com.dunctebot:skybot-lavalink-plugin:1.7.0"
+      repository: "https://maven.lavalink.dev/releases"
+    - dependency: "com.github.devoxin:lavadspx-plugin:0.0.5"
+      repository: "https://jitpack.io"
+    - dependency: "com.github.topi314.lavalyrics:lavalyrics-plugin:1.1.0"
+      repository: "https://maven.lavalink.dev/releases"
+    - dependency: "me.duncte123:java-lyrics-plugin:1.6.6"
+      repository: "https://maven.lavalink.dev/releases"
+
+plugins:
+  lyrics:
+    countryCode: VN
+  lavalyrics:
+    sources:
+      - genius
+      - spotify
+      - youtube
+      - deezer
+      - yandexMusic
+  youtube:
+    enabled: true
+    oauth:
+      enabled: true
+      # Paste a refresh token only in application.yml, never in this file.
+      refreshToken: ""
+      skipInitialization: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    clients:
+      - ANDROID_VR
+      - WEBEMBEDDED
+      - WEB
+      - TV
+    clientOptions:
+      ANDROID_VR:
+        playback: false
+      TV:
+        searching: false
+        videoLoading: false
+        playlistLoading: false
+    remoteCipher:
+      # Optional remote cipher service. Leave this section out if unused.
+      url: "https://cipher.kikkia.dev/"
+      userAgent: "your-lavalink-node-name"
+  lavasrc:
+    providers:
+      - 'ytsearch:"%ISRC%"'
+      - "ytsearch:%QUERY%"
+    sources:
+      spotify: true
+      youtube: false
+      ytdlp: false
+    lyrics-sources:
+      youtube: true
+      lrcLib: true
+    spotify:
+      clientId: ""
+      clientSecret: ""
+      resolveArtistsInSearch: true
+      albumLoadLimit: 2
+      countryCode: "US"
+      playlistLoadLimit: 3
+      localFiles: true
+  dunctebot:
+    ttsLanguage: "en-US"
+    sources:
+      getyarn: true
+      clypit: true
+      tts: true
+      pornhub: true
+      reddit: true
+      ocremix: true
+      tiktok: true
+      mixcloud: true
+      soundgasm: true
+
+logging:
+  file:
+    path: ./logs/
+  level:
+    root: INFO
+    lavalink: INFO
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
+  request:
+    enabled: true
+    includeClientInfo: true
+    includeHeaders: false
+    includeQueryString: false
+    includePayload: false
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 5
