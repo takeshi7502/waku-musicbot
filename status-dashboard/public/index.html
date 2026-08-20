@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101b12" />
+    <meta name="description" content="Trạng thái trực tiếp của Lavalink" />
+    <title>Lavalink Status</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="sky-layer" aria-hidden="true"></div>
+    <div class="cloud cloud-one" aria-hidden="true"></div>
+    <div class="cloud cloud-two" aria-hidden="true"></div>
+    <div class="terrain-layer" aria-hidden="true"></div>
+
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Takeshi Node">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><b></b><b></b></span>
+        <span>
+          <strong>Takeshi Node</strong>
+          <small>Lavalink status</small>
+        </span>
+      </a>
+      <div class="header-status" id="header-status" aria-live="polite">
+        <span class="status-dot"></span>
+        <span>Đang kiểm tra node...</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">LAVALINK // OVERWORLD</p>
+          <h1 id="page-title">Máy chủ Lavalink</h1>
+          <p class="hero-copy">Thông số node và hoạt động phát nhạc được cập nhật trực tiếp từ Lavalink.</p>
+        </div>
+        <div class="last-update" aria-live="polite">
+          <span>Lần cập nhật cuối</span>
+          <strong id="last-update">—</strong>
+        </div>
+      </section>
+
+      <section class="notice-panel panel" aria-labelledby="notice-title">
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">SERVER BOARD</p>
+            <h2 id="notice-title">Thông tin</h2>
+          </div>
+        </div>
+        <ul class="notice-list" id="notice-list">
+          <li class="notice info">Đang tải thông báo...</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="node-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">NODE VITALS</p>
+            <h2 id="node-title">Tình trạng node</h2>
+          </div>
+          <span class="version-pill" id="node-version">Lavalink —</span>
+        </div>
+
+        <article class="node-card panel" id="node-card">
+          <div class="node-card-top">
+            <div class="node-name-wrap">
+              <span class="node-orb" aria-hidden="true"></span>
+              <div>
+                <h3 id="node-name">Lavalink</h3>
+                <p id="node-state">Đang kết nối đến Lavalink...</p>
+              </div>
+            </div>
+            <span class="state-badge checking" id="node-state-badge">CHECKING</span>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric"><span>Players</span><strong id="metric-players">—</strong></div>
+            <div class="metric"><span>Đang phát</span><strong id="metric-playing">—</strong></div>
+            <div class="metric"><span>Uptime</span><strong id="metric-uptime">—</strong></div>
+            <div class="metric"><span>CPU node</span><strong id="metric-cpu">—</strong></div>
+            <div class="metric"><span>Load hệ thống</span><strong id="metric-system-load">—</strong></div>
+            <div class="metric"><span>Bộ nhớ</span><strong id="metric-memory">—</strong></div>
+            <div class="metric"><span>Khả dụng 24h</span><strong id="metric-availability">—</strong></div>
+            <div class="metric"><span>CPU cores</span><strong id="metric-cores">—</strong></div>
+            <div class="metric"><span>Mạng (từ boot)</span><strong id="metric-network">—</strong></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="activity-section panel" aria-labelledby="activity-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">JUKEBOX LOG</p>
+            <h2 id="activity-title">Hoạt động phát nhạc</h2>
+          </div>
+          <span class="activity-count" id="activity-count">0 mục</span>
+        </div>
+        <p class="activity-subtitle" id="activity-subtitle">Bài hát sẽ xuất hiện ở đây ngay khi Lavalink bắt đầu phát.</p>
+        <div class="activity-list" id="activity-list" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Read-only Lavalink dashboard</span>
+      <span>by takeshi.dev</span>
+    </footer>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

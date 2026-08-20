@@ -1,0 +1,24 @@
+{
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 3010
+  },
+  "lavalink": {
+    "url": "http://127.0.0.1:3333",
+    "password": "REPLACE_WITH_YOUR_LAVALINK_PASSWORD"
+  },
+  "dashboard": {
+    "nodeName": "Lavalink",
+    "refreshSeconds": 5,
+    "news": [
+      {
+        "level": "info",
+        "text": "Thông tin được đọc trực tiếp từ Lavalink API."
+      },
+      {
+        "level": "notice",
+        "text": "Thông tin bài hát là activity gần đây; không lưu guild, Discord user hoặc dữ liệu voice."
+      }
+    ]
+  }
+}

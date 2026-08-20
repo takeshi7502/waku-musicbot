@@ -1,0 +1,12 @@
+{
+  "name": "takeshi-lavalink-status-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone, read-only Lavalink status dashboard",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}

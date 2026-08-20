@@ -1,0 +1,7 @@
+tunnel: REPLACE_WITH_TUNNEL_UUID
+credentials-file: /home/REPLACE_WITH_USER/.cloudflared/REPLACE_WITH_TUNNEL_UUID.json
+
+ingress:
+  - hostname: lava-status.example.com
+    service: http://127.0.0.1:3010
+  - service: http_status:404

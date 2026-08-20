@@ -1,0 +1,18 @@
+[Unit]
+Description=Takeshi Lavalink Status Dashboard
+After=network-online.target lavalink.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=<YOUR_LINUX_USER>
+Group=<YOUR_LINUX_USER>
+WorkingDirectory=/home/<YOUR_LINUX_USER>/lavalink/status-dashboard
+ExecStart=/usr/bin/node /home/<YOUR_LINUX_USER>/lavalink/status-dashboard/server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
