@@ -18,12 +18,32 @@ const rl = readline.createInterface({
   const commands = await LoadCommands().then(cmds => {
     return [].concat(cmds.slash).concat(cmds.context);
   });
-  rl.question(t("deploy.auto_321"), async guild => {
+
+  const deployToGuild = async guild => {
+    guild = guild.trim();
     console.log(t("deploy.auto_322"));
     await rest.put(Routes.applicationGuildCommands(config.clientId, guild), {
       body: commands
     }).catch(console.log);
     console.log(t("deploy.auto_323"));
+  };
+
+  // Heroku's Run Console does not provide an interactive stdin prompt. Set
+  // DEPLOY_GUILD_ID for a one-off, immediate guild command deployment.
+  const targetGuild = process.env.DEPLOY_GUILD_ID?.trim();
+  if (targetGuild) {
     rl.close();
+    await deployToGuild(targetGuild);
+    return;
+  }
+
+  rl.question(t("deploy.auto_321"), async guild => {
+    try {
+      await deployToGuild(guild);
+    } catch (error) {
+      console.error(error.message || error);
+    } finally {
+      rl.close();
+    }
   });
 })();
