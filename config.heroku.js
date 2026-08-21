@@ -31,7 +31,7 @@ function booleanValue(name, fallback = false) {
   throw new Error(`[HEROKU] ${name} must be true or false.`);
 }
 
-const lavalinkPort = numberValue("LAVALINK_PORT", 443, { min: 1, max: 65535 });
+const lavalinkPort = numberValue("LAVALINK_PORT", 3333, { min: 1, max: 65535 });
 
 module.exports = {
   ...baseConfig,
@@ -50,7 +50,7 @@ module.exports = {
       authorization: required("LAVALINK_PASSWORD"),
       retryAmount: numberValue("LAVALINK_RETRY_AMOUNT", 200, { min: 0, max: 1000 }),
       retryDelay: numberValue("LAVALINK_RETRY_DELAY", 1000, { min: 0, max: 60000 }),
-      secure: booleanValue("LAVALINK_SECURE", true),
+      secure: booleanValue("LAVALINK_SECURE", false),
       requestTimeout: numberValue("LAVALINK_REQUEST_TIMEOUT", 60000, { min: 1000, max: 300000 }),
     },
   ],

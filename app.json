@@ -30,12 +30,16 @@
       "description": "Discord user ID allowed to use bot administration commands",
       "required": true
     },
+    "BOT_ADMIN_GUILD_ID": {
+      "description": "Optional home guild ID for immediate deployment of admin commands",
+      "required": false
+    },
     "MONGODB_URI": {
       "description": "MongoDB Atlas connection string. Required because Heroku dyno storage is temporary.",
       "required": true
     },
     "LAVALINK_HOST": {
-      "description": "Public TLS hostname of the Lavalink reverse proxy, for example node.lavalink.example.com",
+      "description": "Hostname or IP reachable from Heroku, without http:// or https://",
       "required": true
     },
     "LAVALINK_PASSWORD": {
@@ -43,12 +47,12 @@
       "required": true
     },
     "LAVALINK_PORT": {
-      "description": "Lavalink TLS port",
-      "value": "443"
+      "description": "Direct Lavalink port",
+      "value": "3333"
     },
     "LAVALINK_SECURE": {
-      "description": "Use HTTPS/WSS to reach Lavalink",
-      "value": "true"
+      "description": "Set true only when the Lavalink endpoint itself uses HTTPS/WSS",
+      "value": "false"
     },
     "BOT_LANGUAGE": {
       "description": "Default bot language",

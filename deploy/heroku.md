@@ -1,84 +1,66 @@
 # Deploy bot lên Heroku
 
-Heroku chỉ chạy bot. Lavalink tiếp tục chạy trên VPS; MongoDB Atlas lưu toàn bộ
-dữ liệu bền vững. Không chạy thêm một bot khác với cùng Discord token.
+Heroku chỉ chạy Discord bot. Lavalink chạy trực tiếp trên VPS và MongoDB Atlas
+lưu dữ liệu bền vững. Không chạy thêm bot khác với cùng Discord token.
 
-## 1. Chuẩn bị Lavalink trên VPS
+## Lavalink VPS
 
-Tạo DNS `node.lavalink.takeshi.dev` trỏ về IP VPS Lavalink. Không dùng hostname
-của dashboard vì hai dịch vụ có endpoint `/` khác nhau.
+Bot Heroku kết nối trực tiếp tới Lavalink qua:
 
-Tạo Nginx site `/etc/nginx/sites-available/node.lavalink.takeshi.dev`:
-
-```nginx
-server {
-    listen 80;
-    listen [::]:80;
-    server_name node.lavalink.takeshi.dev;
-
-    location / {
-        proxy_pass http://127.0.0.1:3333;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-    }
-}
+```text
+lavalink.takeshi.dev:3333
 ```
 
-Enable site, obtain TLS, then verify the upstream without exposing port 3333:
+Không tạo Nginx proxy hoặc Certbot riêng cho Lavalink. Nginx/dashboard vẫn có
+thể dùng `lavalink.takeshi.dev` ở port 80/443; port 3333 là cổng riêng của
+Lavalink nên không xung đột.
 
-```bash
-sudo ln -s /etc/nginx/sites-available/node.lavalink.takeshi.dev /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d node.lavalink.takeshi.dev --redirect
-```
+Trong firewall của VPS/cloud, cho phép TCP `3333` từ Internet để Heroku có thể
+kết nối. Heroku dùng outbound IP động nên không thể whitelist một IP cố định.
+Giữ password Lavalink mạnh và không chia sẻ nó.
 
-After every client has migrated to the TLS hostname, bind Lavalink to
-`127.0.0.1:3333` and remove the cloud firewall rule for TCP 3333. Until then,
-keep its existing restricted source-IP rule rather than opening TCP 3333
-publicly. The Lavalink password remains a required secret even behind TLS.
+## Heroku Config Vars
 
-## 2. Heroku Config Vars
-
-Set these in **Settings → Config Vars** (or use the values requested by
-`app.json`):
+Thêm các giá trị sau trong **Settings → Config Vars**:
 
 | Name | Value |
 | --- | --- |
 | `DISCORD_TOKEN` | Discord bot token |
 | `DISCORD_CLIENT_ID` | Discord application ID |
-| `BOT_ADMIN_ID` | Discord user ID of the bot owner |
+| `BOT_ADMIN_ID` | Discord ID của chủ bot |
+| `BOT_ADMIN_GUILD_ID` | ID server chính, để deploy lệnh admin ngay (không bắt buộc) |
 | `MONGODB_URI` | MongoDB Atlas URI |
-| `LAVALINK_HOST` | `node.lavalink.takeshi.dev` |
-| `LAVALINK_PASSWORD` | Lavalink password |
-| `LAVALINK_PORT` | `443` |
-| `LAVALINK_SECURE` | `true` |
-| `BOT_LANGUAGE` | `vi` (optional) |
+| `LAVALINK_HOST` | `lavalink.takeshi.dev` |
+| `LAVALINK_PASSWORD` | Password Lavalink |
+| `LAVALINK_PORT` | `3333` |
+| `LAVALINK_SECURE` | `false` |
+| `BOT_LANGUAGE` | `vi` (không bắt buộc) |
 
-Do not create or upload `config.js` on Heroku. `config.heroku.js` builds the
-runtime configuration only when Heroku supplies `DYNO` or `HEROKU_APP_NAME`.
+Không tạo hoặc upload `config.js` lên Heroku. `config.heroku.js` đọc các Config
+Vars này và bắt buộc dùng MongoDB thay vì database JSON tạm.
 
-## 3. Deploy and run
+## Deploy
 
-Deploy the `v5` branch using Heroku GitHub integration or the Heroku CLI. The
-repository's `Procfile` declares:
+1. Deploy branch `v5` trong Heroku Dashboard.
+2. Trong **Resources**, để `web = 0` và `worker = 1`.
+3. Trong **More → Run console**, ô nhập lệnh đã có sẵn tiền tố `heroku run`.
+   Chỉ nhập:
 
-```procfile
-worker: npm start
-```
+   ```bash
+   npm run deploy
+   ```
 
-Scale exactly one worker dyno and no web dyno:
+   Lệnh này đăng ký các slash command global và command admin vào
+   `BOT_ADMIN_GUILD_ID` nếu đã đặt.
 
-```bash
-heroku ps:scale worker=1 web=0 --app YOUR_HEROKU_APP
-heroku logs --tail --app YOUR_HEROKU_APP
-```
+4. Để lệnh hiện ngay trong một server cụ thể, deploy lại source có
+   `DEPLOY_GUILD_ID` rồi chạy trong Run Console:
 
-The project pins Node.js 22.x for the Heroku buildpack. Heroku filesystem data
-is temporary, which is why `MONGODB_URI` is mandatory.
+   ```bash
+   DEPLOY_GUILD_ID=ID_SERVER npm run guild
+   ```
+
+Global command có thể mất một lúc để Discord cập nhật. Guild command thường
+hiện gần như ngay; reload Discord bằng `Ctrl + R` nếu cần.
+
+Heroku dùng worker process `npm start`, Node.js 22.x và dyno filesystem tạm.
