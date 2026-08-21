@@ -25,6 +25,18 @@ function ConfigFetcher() {
         const config = require("../config");
         res(sanitizeConfig(config));
       } catch {
+        // config.js is intentionally not deployed to Heroku because it holds
+        // secrets. The production-safe equivalent reads Heroku Config Vars.
+        if (process.env.DYNO || process.env.HEROKU_APP_NAME) {
+          try {
+            const config = require("../config.heroku");
+            res(sanitizeConfig(config));
+          } catch (error) {
+            rej(error instanceof Error ? error.message : t("getConfig.auto_294"));
+          }
+          return;
+        }
+
         rej(t("getConfig.auto_294"));
       }
     }

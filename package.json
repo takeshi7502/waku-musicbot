@@ -17,7 +17,7 @@
     "url": "git+https://github.com/takeshi7502/Discord-MusicBot.git"
   },
   "engines": {
-    "node": ">=18.x"
+    "node": "22.x"
   },
   "keywords": [
     "discord",
