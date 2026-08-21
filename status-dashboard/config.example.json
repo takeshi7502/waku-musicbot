@@ -17,7 +17,15 @@
       },
       {
         "level": "notice",
-        "text": "Thông tin bài hát là activity gần đây; không lưu guild, Discord user hoặc dữ liệu voice."
+        "text": "Thông tin bài hát là activity gần đây; không lưu guild, Discord user hoặc dữ liệu voice.",
+        "buttonLabel": "Thêm bot",
+        "buttonUrl": "https://discord.com/oauth2/authorize?client_id=1162333756137406514&permissions=277083450689&scope=bot%20applications.commands"
+      },
+      {
+        "level": "warning",
+        "text": "Tham gia máy chủ cộng đồng để nhận hỗ trợ và cập nhật.",
+        "buttonLabel": "Server cộng đồng",
+        "buttonUrl": "https://discord.gg/eGkwfAQKMF"
       }
     ]
   }

@@ -142,6 +142,7 @@ public final class ActivityTracker extends PluginEventHandler {
         private final long durationMs;
         private final boolean stream;
         private final String source;
+        private final String uri;
         private final String artworkUrl;
         private final long startedAt;
         private volatile long updatedAt;
@@ -154,6 +155,7 @@ public final class ActivityTracker extends PluginEventHandler {
                 long durationMs,
                 boolean stream,
                 String source,
+                String uri,
                 String artworkUrl,
                 long startedAt,
                 long updatedAt,
@@ -164,6 +166,7 @@ public final class ActivityTracker extends PluginEventHandler {
             this.durationMs = durationMs;
             this.stream = stream;
             this.source = source;
+            this.uri = uri;
             this.artworkUrl = artworkUrl;
             this.startedAt = startedAt;
             this.updatedAt = updatedAt;
@@ -180,6 +183,7 @@ public final class ActivityTracker extends PluginEventHandler {
                     Math.max(0, info.length),
                     info.isStream,
                     safeText(track.getSourceManager().getSourceName(), "unknown"),
+                    safeUri(info.uri),
                     safeArtwork(info.artworkUrl),
                     now,
                     now,
@@ -197,6 +201,7 @@ public final class ActivityTracker extends PluginEventHandler {
         public long getDurationMs() { return durationMs; }
         public boolean isStream() { return stream; }
         public String getSource() { return source; }
+        public String getUri() { return uri; }
         public String getArtworkUrl() { return artworkUrl; }
         public long getStartedAt() { return startedAt; }
         public long getUpdatedAt() { return updatedAt; }
@@ -210,6 +215,14 @@ public final class ActivityTracker extends PluginEventHandler {
         }
 
         private static String safeArtwork(String value) {
+            return safeHttpUrl(value);
+        }
+
+        private static String safeUri(String value) {
+            return safeHttpUrl(value);
+        }
+
+        private static String safeHttpUrl(String value) {
             if (value == null || value.isBlank()) {
                 return null;
             }
@@ -218,6 +231,7 @@ public final class ActivityTracker extends PluginEventHandler {
                 URI uri = URI.create(value);
                 String scheme = uri.getScheme();
                 return ("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))
+                                && value.length() <= 2048
                         ? value
                         : null;
             } catch (IllegalArgumentException ignored) {

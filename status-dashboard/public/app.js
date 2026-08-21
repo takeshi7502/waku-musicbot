@@ -18,6 +18,8 @@ const elements = {
   availability: document.querySelector("#metric-availability"),
   cores: document.querySelector("#metric-cores"),
   network: document.querySelector("#metric-network"),
+  sourceCount: document.querySelector("#source-count"),
+  sourceList: document.querySelector("#source-list"),
   activityCount: document.querySelector("#activity-count"),
   activitySubtitle: document.querySelector("#activity-subtitle"),
   activityList: document.querySelector("#activity-list")
@@ -54,8 +56,50 @@ function formatBytes(bytes) {
 }
 
 function sourceName(source) {
-  const names = { youtube: "YouTube", soundcloud: "SoundCloud", spotify: "Spotify", http: "HTTP", local: "Local" };
+  const names = {
+    youtube: "YouTube",
+    soundcloud: "SoundCloud",
+    spotify: "Spotify",
+    applemusic: "Apple Music",
+    deezer: "Deezer",
+    yandexmusic: "Yandex Music",
+    bandcamp: "Bandcamp",
+    vimeo: "Vimeo",
+    twitch: "Twitch",
+    http: "HTTP Streaming",
+    local: "Local files"
+  };
   return names[String(source || "").toLowerCase()] || source || "Unknown";
+}
+
+function sourceMark(source) {
+  return {
+    youtube: "YT",
+    soundcloud: "SC",
+    spotify: "SP",
+    applemusic: "AM",
+    deezer: "DZ",
+    yandexmusic: "YM",
+    bandcamp: "BC",
+    vimeo: "VM",
+    twitch: "TW",
+    http: "HT"
+  }[String(source || "").toLowerCase()] || "♪";
+}
+
+function sourceIconUrl(source) {
+  const icons = {
+    youtube: "https://cdn.simpleicons.org/youtube/FF0000",
+    soundcloud: "https://cdn.simpleicons.org/soundcloud/FF5500",
+    spotify: "https://cdn.simpleicons.org/spotify/1ED760",
+    applemusic: "https://cdn.simpleicons.org/applemusic/FA243C",
+    deezer: "https://cdn.simpleicons.org/deezer/A238FF",
+    yandexmusic: "https://cdn.simpleicons.org/yandexmusic/FF0000",
+    bandcamp: "https://cdn.simpleicons.org/bandcamp/629AA9",
+    twitch: "https://cdn.simpleicons.org/twitch/9146FF",
+    vimeo: "https://cdn.simpleicons.org/vimeo/1AB7EA"
+  };
+  return icons[String(source || "").toLowerCase()] || null;
 }
 
 function stateLabel(state) {
@@ -75,7 +119,21 @@ function renderNews(news) {
   for (const entry of entries) {
     const item = document.createElement("li");
     item.className = `notice notice-${entry.level}`;
-    item.textContent = entry.text;
+    const text = document.createElement("span");
+    text.className = "notice-text";
+    text.textContent = entry.text;
+    item.append(text);
+
+    if (entry.buttonUrl && entry.buttonLabel) {
+      const button = document.createElement("a");
+      button.className = "notice-button";
+      button.href = entry.buttonUrl;
+      button.target = "_blank";
+      button.rel = "noopener noreferrer";
+      button.textContent = entry.buttonLabel;
+      item.append(button);
+    }
+
     elements.noticeList.append(item);
   }
 }
@@ -99,6 +157,54 @@ function renderNode(node) {
   elements.availability.textContent = node.uptime24h?.available ? `${node.uptime24h.percentage.toFixed(2)}%` : "Đang thu thập";
   elements.cores.textContent = online ? `${node.cpu?.cores || 0} cores` : "—";
   elements.network.textContent = typeof node.networkBytes === "number" ? formatBytes(node.networkBytes) : "Không rõ";
+}
+
+function renderSources(node) {
+  const sources = Array.isArray(node.sources) ? node.sources : [];
+  elements.sourceList.replaceChildren();
+  elements.sourceCount.textContent = sources.length ? `${sources.length} nguồn` : "Chưa có dữ liệu";
+
+  if (!sources.length) {
+    const empty = document.createElement("li");
+    empty.className = "source-empty";
+    empty.textContent = node.online ? "Lavalink chưa trả về danh sách nguồn phát." : "Danh sách nguồn sẽ hiện khi node trực tuyến.";
+    elements.sourceList.append(empty);
+    return;
+  }
+
+  for (const source of sources) {
+    const item = document.createElement("li");
+    item.className = "source-item";
+    item.dataset.source = source;
+
+    const mark = document.createElement("span");
+    mark.className = "source-mark";
+    const iconUrl = sourceIconUrl(source);
+    if (iconUrl) {
+      const icon = document.createElement("img");
+      icon.className = "source-icon";
+      icon.src = iconUrl;
+      icon.alt = "";
+      icon.loading = "lazy";
+      icon.addEventListener("error", () => {
+        mark.textContent = sourceMark(source);
+      }, { once: true });
+      mark.append(icon);
+    } else {
+      mark.textContent = sourceMark(source);
+    }
+
+    const label = document.createElement("span");
+    label.className = "source-label";
+    label.textContent = sourceName(source);
+
+    const ready = document.createElement("span");
+    ready.className = "source-ready";
+    ready.textContent = "READY";
+
+    item.append(mark, label, ready);
+    elements.sourceList.append(item);
+  }
 }
 
 function makeArtwork(item) {
@@ -144,10 +250,15 @@ function renderActivity(activity) {
 
     const detail = document.createElement("div");
     detail.className = "track-detail";
-    const title = document.createElement("p");
+    const title = document.createElement(item.uri ? "a" : "p");
     title.className = "track-title";
     title.textContent = item.title;
     title.title = item.title;
+    if (item.uri) {
+      title.href = item.uri;
+      title.target = "_blank";
+      title.rel = "noopener noreferrer";
+    }
     const author = document.createElement("p");
     author.className = "track-author";
     author.textContent = item.author;
@@ -174,6 +285,7 @@ function makeEmptyState(message) {
 function render(payload) {
   renderNews(payload.news || []);
   renderNode(payload.node || {});
+  renderSources(payload.node || {});
   renderActivity(payload.activity || { available: false, items: [] });
   elements.lastUpdate.textContent = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(payload.generatedAt || Date.now()));
 }

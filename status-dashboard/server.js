@@ -14,6 +14,18 @@ const UPTIME_HISTORY_PATH = path.join(DATA_DIR, "uptime-history.json");
 const REQUEST_TIMEOUT_MS = 3500;
 const UPTIME_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UPTIME_SAMPLE_MS = 60 * 1000;
+const SOURCE_PRIORITY = [
+  "youtube",
+  "soundcloud",
+  "spotify",
+  "applemusic",
+  "deezer",
+  "yandexmusic",
+  "bandcamp",
+  "twitch",
+  "vimeo",
+  "http"
+];
 
 const CONTENT_TYPES = {
   ".css": "text/css; charset=utf-8",
@@ -192,7 +204,9 @@ function normaliseNews(news) {
   return news
     .map((entry) => ({
       level: ["info", "notice", "warning"].includes(entry?.level) ? entry.level : "info",
-      text: String(entry?.text || "").trim().slice(0, 500)
+      text: String(entry?.text || "").trim().slice(0, 500),
+      buttonLabel: String(entry?.buttonLabel || "").trim().slice(0, 80),
+      buttonUrl: isSafeExternalUrl(entry?.buttonUrl) ? entry.buttonUrl : null
     }))
     .filter((entry) => entry.text);
 }
@@ -206,6 +220,7 @@ function publicActivity(payload) {
     durationMs: Math.max(0, Number(item?.durationMs) || 0),
     stream: Boolean(item?.stream),
     source: String(item?.source || "unknown").slice(0, 80),
+    uri: isSafeExternalUrl(item?.uri) ? item.uri : null,
     artworkUrl: isSafeArtworkUrl(item?.artworkUrl) ? item.artworkUrl : null,
     startedAt: Math.max(0, Number(item?.startedAt) || 0),
     updatedAt: Math.max(0, Number(item?.updatedAt) || 0),
@@ -216,6 +231,10 @@ function publicActivity(payload) {
 }
 
 function isSafeArtworkUrl(value) {
+  return isSafeExternalUrl(value);
+}
+
+function isSafeExternalUrl(value) {
   if (typeof value !== "string" || value.length > 2048) return false;
   try {
     const url = new URL(value);
@@ -223,6 +242,34 @@ function isSafeArtworkUrl(value) {
   } catch {
     return false;
   }
+}
+
+function publicSourceManagers(value) {
+  if (!Array.isArray(value)) return [];
+
+  const sources = [];
+  const seen = new Set();
+  for (const source of value) {
+    const name = String(source || "").trim().toLowerCase();
+    if (!name || name === "local" || name.length > 80 || seen.has(name)) continue;
+    seen.add(name);
+    sources.push(name);
+    if (sources.length >= 24) break;
+  }
+  // The dashboard lists the sources available through the installed Lavalink
+  // stack as well as managers currently returned by Lavalink itself.
+  for (const source of SOURCE_PRIORITY) {
+    if (seen.has(source)) continue;
+    seen.add(source);
+    sources.push(source);
+  }
+  return sources.sort((left, right) => {
+    const leftPriority = SOURCE_PRIORITY.indexOf(left);
+    const rightPriority = SOURCE_PRIORITY.indexOf(right);
+    const leftIndex = leftPriority === -1 ? SOURCE_PRIORITY.length : leftPriority;
+    const rightIndex = rightPriority === -1 ? SOURCE_PRIORITY.length : rightPriority;
+    return leftIndex - rightIndex || left.localeCompare(right);
+  });
 }
 
 async function statusPayload() {
@@ -246,6 +293,7 @@ async function statusPayload() {
       name: config.dashboard.nodeName,
       online,
       version: typeof info?.version?.semver === "string" ? info.version.semver : null,
+      sources: publicSourceManagers(info?.sourceManagers),
       players: Math.max(0, Number(stats?.players) || 0),
       playingPlayers: Math.max(0, Number(stats?.playingPlayers) || 0),
       uptimeMs: Math.max(0, Number(stats?.uptime) || 0),

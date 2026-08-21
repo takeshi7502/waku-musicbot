@@ -8,7 +8,8 @@ Discord bot.
 
 - Direct Lavalink statistics: online state, player counts, uptime, CPU and RAM.
 - A live/recent feed of up to 50 tracks, provided by `../status-plugin`.
-- Static operator notices configured in `config.json`.
+- Static operator notices configured in `config.json`, optionally with a safe
+  `buttonLabel` and `buttonUrl` link.
 - Availability over the last 24 hours, sampled directly from Lavalink once per
   minute and saved locally by the sidecar.
 - Total network traffic since the Linux host booted, when `/proc/net/dev` is
@@ -54,6 +55,8 @@ The expected VPS layout is:
 
    Set `lavalink.password` to the same password in `application.yml`. Keep
    `listen.host` as `127.0.0.1`; the status server must not be exposed directly.
+   A news item can optionally include `buttonLabel` and an `http`/`https`
+   `buttonUrl`; the link is rendered as a compact button inside that notice.
 
 4. Test it locally:
 
