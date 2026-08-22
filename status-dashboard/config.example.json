@@ -3,13 +3,18 @@
     "host": "127.0.0.1",
     "port": 3010
   },
-  "lavalink": {
-    "url": "http://127.0.0.1:3333",
-    "password": "REPLACE_WITH_YOUR_LAVALINK_PASSWORD"
-  },
+  "nodes": [
+    {
+      "id": "primary",
+      "name": "Lavalink 2-2",
+      "url": "http://127.0.0.1:3333",
+      "password": "REPLACE_WITH_YOUR_LAVALINK_PASSWORD",
+      "local": true
+    }
+  ],
   "dashboard": {
-    "nodeName": "Lavalink",
     "refreshSeconds": 5,
+    "timeZone": "Asia/Ho_Chi_Minh",
     "news": [
       {
         "level": "info",
@@ -17,14 +22,14 @@
       },
       {
         "level": "notice",
-        "text": "Thông tin bài hát là activity gần đây; không lưu guild, Discord user hoặc dữ liệu voice.",
+        "text": "Thêm bot music miễn phí Takeshi Music của tôi ở ngay đây!",
         "buttonLabel": "Thêm bot",
         "buttonUrl": "https://discord.com/oauth2/authorize?client_id=1162333756137406514&permissions=277083450689&scope=bot%20applications.commands"
       },
       {
         "level": "warning",
-        "text": "Tham gia máy chủ cộng đồng để nhận hỗ trợ và cập nhật.",
-        "buttonLabel": "Server cộng đồng",
+        "text": "Tham gia server cộng đồng để nhận cập nhật và hỗ trợ.",
+        "buttonLabel": "Vào server",
         "buttonUrl": "https://discord.gg/eGkwfAQKMF"
       }
     ]

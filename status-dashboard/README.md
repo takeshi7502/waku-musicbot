@@ -1,12 +1,13 @@
 # Takeshi Lavalink Status Dashboard
 
-Standalone, read-only status page for a Lavalink node. It talks to the local
-Lavalink REST API and the bundled status plugin only; it never connects to the
-Discord bot.
+Standalone, read-only status page for one or more Lavalink nodes. It talks to
+their Lavalink REST APIs and bundled status plugins only; it never connects to
+the Discord bot.
 
 ## What it shows
 
-- Direct Lavalink statistics: online state, player counts, uptime, CPU and RAM.
+- Direct Lavalink statistics for up to 12 nodes: online state, player counts,
+  uptime, CPU and RAM. Node rows are collapsed by default and expand on click.
 - A live/recent feed of up to 50 tracks, provided immediately by
   `../status-plugin` over one local Server-Sent Events connection.
 - One shared five-second Lavalink refresh for node statistics. Both the node
@@ -17,7 +18,8 @@ Discord bot.
 - Availability over the last 24 hours, sampled directly from Lavalink once per
   minute and saved locally by the sidecar.
 - Total network traffic since the Linux host booted, when `/proc/net/dev` is
-  available.
+  available. This is enabled only for a node marked `local: true`, so a remote
+  node never shows the dashboard host's traffic by mistake.
 
 The page never receives Lavalink's password. The Node sidecar uses it locally,
 and only returns a deliberately small public response to the browser.
@@ -57,10 +59,26 @@ The expected VPS layout is:
    chmod 600 config.json
    ```
 
-   Set `lavalink.password` to the same password in `application.yml`. Keep
-   `listen.host` as `127.0.0.1`; the status server must not be exposed directly.
-   A news item can optionally include `buttonLabel` and an `http`/`https`
-   `buttonUrl`; the link is rendered as a compact button inside that notice.
+   Add one object per node to `nodes`. Each object needs a unique `id`, readable
+   `name`, `url`, and the matching Lavalink `password`. Set `local: true` only
+   when that Lavalink process runs on the same machine as this dashboard.
+   Keep `listen.host` as `127.0.0.1`; the status server must not be exposed
+   directly. `dashboard.timeZone` controls the displayed "Phát lúc" time in the
+   activity feed. A news item can optionally include `buttonLabel` and an
+   `http`/`https` `buttonUrl`; the link is rendered as a compact button inside
+   that notice.
+
+   Example of adding the phone node after the primary node:
+
+   ```json
+   {
+     "id": "pnode",
+     "name": "PNode",
+     "url": "https://pnode.takeshi.dev",
+     "password": "THE_PHONE_LAVALINK_PASSWORD",
+     "local": false
+   }
+   ```
 
 4. Test it locally:
 

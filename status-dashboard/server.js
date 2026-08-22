@@ -15,6 +15,8 @@ const REQUEST_TIMEOUT_MS = 3500;
 const ACTIVITY_STREAM_RETRY_MS = 3000;
 const UPTIME_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UPTIME_SAMPLE_MS = 60 * 1000;
+const MAX_NODES = 12;
+const MAX_ACTIVITY_ITEMS = 50;
 const SOURCE_PRIORITY = [
   "youtube",
   "soundcloud",
@@ -39,34 +41,101 @@ const CONTENT_TYPES = {
 
 function loadConfig() {
   if (!fs.existsSync(CONFIG_PATH)) {
-    throw new Error(
-      `Missing ${CONFIG_PATH}. Copy config.example.json to config.json and enter the local Lavalink password.`
-    );
+    throw new Error(`Missing ${CONFIG_PATH}. Copy config.example.json to config.json and configure the Lavalink nodes.`);
   }
 
-  // PowerShell 5 may write UTF-8 JSON with a BOM; Node's JSON.parse does not strip it.
-  const config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8").replace(/^\uFEFF/, ""));
-  const host = config.listen?.host || "127.0.0.1";
-  const port = Number(config.listen?.port || 3010);
-  const lavalinkUrl = config.lavalink?.url;
-  const password = config.lavalink?.password;
+  const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8").replace(/^\uFEFF/, ""));
+  const host = raw.listen?.host || "127.0.0.1";
+  const port = Number(raw.listen?.port || 3010);
+  const dashboard = raw.dashboard || {};
 
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("listen.port must be a valid TCP port.");
   }
-  if (!lavalinkUrl || !password || password === "REPLACE_WITH_YOUR_LAVALINK_PASSWORD") {
-    throw new Error("lavalink.url and lavalink.password must be configured in config.json.");
+
+  const rawNodes = Array.isArray(raw.nodes) && raw.nodes.length
+    ? raw.nodes
+    : raw.lavalink
+      ? [{
+          id: "default",
+          name: dashboard.nodeName || "Lavalink",
+          url: raw.lavalink.url,
+          password: raw.lavalink.password,
+          local: true
+        }]
+      : [];
+
+  if (!rawNodes.length || rawNodes.length > MAX_NODES) {
+    throw new Error(`config.json must contain between 1 and ${MAX_NODES} nodes.`);
+  }
+
+  const seenIds = new Set();
+  const nodes = rawNodes.map((entry, index) => {
+    const node = parseNode(entry, index, dashboard.nodeName || "Lavalink");
+    if (seenIds.has(node.id)) {
+      throw new Error(`Duplicate node id: ${node.id}`);
+    }
+    seenIds.add(node.id);
+    return node;
+  });
+
+  const timeZone = isValidTimeZone(dashboard.timeZone) ? dashboard.timeZone : "Asia/Ho_Chi_Minh";
+  return {
+    listen: { host, port },
+    nodes,
+    dashboard: {
+      refreshSeconds: clamp(Number(dashboard.refreshSeconds || 5), 3, 60),
+      timeZone,
+      news: Array.isArray(dashboard.news) ? dashboard.news.slice(0, 8) : []
+    }
+  };
+}
+
+function parseNode(rawNode, index, fallbackName) {
+  const value = rawNode && typeof rawNode === "object" ? rawNode : {};
+  const id = String(value.id || `node-${index + 1}`).trim();
+  const name = String(value.name || (index === 0 ? fallbackName : `Lavalink ${index + 1}`)).trim();
+  const password = value.password;
+
+  if (!/^[a-zA-Z0-9_-]{1,50}$/.test(id)) {
+    throw new Error(`nodes[${index}].id may only contain letters, numbers, _ and -.`);
+  }
+  if (!name || name.length > 100) {
+    throw new Error(`nodes[${index}].name must contain 1-100 characters.`);
+  }
+  if (typeof password !== "string" || !password || password === "REPLACE_WITH_YOUR_LAVALINK_PASSWORD") {
+    throw new Error(`nodes[${index}].password must be configured.`);
+  }
+
+  let url;
+  try {
+    url = new URL(value.url);
+  } catch {
+    throw new Error(`nodes[${index}].url must be a valid http(s) URL.`);
+  }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password) {
+    throw new Error(`nodes[${index}].url must be an http(s) URL without embedded credentials.`);
   }
 
   return {
-    listen: { host, port },
-    lavalink: { url: new URL(lavalinkUrl), password },
-    dashboard: {
-      nodeName: String(config.dashboard?.nodeName || "Lavalink").slice(0, 100),
-      refreshSeconds: clamp(Number(config.dashboard?.refreshSeconds || 5), 3, 60),
-      news: Array.isArray(config.dashboard?.news) ? config.dashboard.news.slice(0, 8) : []
-    }
+    id,
+    name,
+    url,
+    password,
+    // Lavalink reports CPU/RAM remotely, but network bytes belong to the host
+    // that runs the dashboard. Keep this opt-in for a truthful remote-node card.
+    local: Boolean(value.local)
   };
+}
+
+function isValidTimeZone(value) {
+  if (typeof value !== "string" || !value) return false;
+  try {
+    new Intl.DateTimeFormat("vi-VN", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function clamp(value, min, max) {
@@ -75,50 +144,69 @@ function clamp(value, min, max) {
 
 const config = loadConfig();
 let uptimeHistory = loadUptimeHistory();
-let activityCache = unavailableActivityPayload();
+const nodeRuntime = new Map(config.nodes.map((node) => [node.id, createNodeRuntime()]));
 let statusCache = unavailableStatusPayload();
 let statusRefreshInFlight = null;
 const statusSubscribers = new Set();
-let activityStreamRequest = null;
-let activityStreamResponse = null;
-let activityStreamReconnectTimer = null;
-let activityStreamLive = false;
+
+function createNodeRuntime() {
+  return {
+    activity: unavailableActivityPayload(),
+    activityStreamRequest: null,
+    activityStreamResponse: null,
+    activityStreamReconnectTimer: null,
+    activityStreamLive: false
+  };
+}
 
 function loadUptimeHistory() {
   try {
     const stored = JSON.parse(fs.readFileSync(UPTIME_HISTORY_PATH, "utf8"));
-    return Array.isArray(stored?.samples)
-      ? stored.samples.filter((entry) => Number.isFinite(entry?.at) && typeof entry?.online === "boolean")
-      : [];
+    const nodes = {};
+    const storedNodes = stored?.nodes && typeof stored.nodes === "object" ? stored.nodes : null;
+
+    for (const node of config.nodes) {
+      const samples = storedNodes?.[node.id]?.samples
+        || (node.id === config.nodes[0].id ? stored?.samples : null)
+        || [];
+      nodes[node.id] = { samples: normaliseSamples(samples) };
+    }
+    return nodes;
   } catch {
-    return [];
+    return Object.fromEntries(config.nodes.map((node) => [node.id, { samples: [] }]));
   }
 }
 
-function recordAvailability(online) {
+function normaliseSamples(samples) {
+  return Array.isArray(samples)
+    ? samples.filter((entry) => Number.isFinite(entry?.at) && typeof entry?.online === "boolean")
+    : [];
+}
+
+function recordAvailability(nodeId, online) {
   const now = Date.now();
   const cutoff = now - UPTIME_WINDOW_MS;
-  uptimeHistory = uptimeHistory.filter((entry) => entry.at >= cutoff);
-  const last = uptimeHistory.at(-1);
+  const history = uptimeHistory[nodeId] || { samples: [] };
+  uptimeHistory[nodeId] = history;
+  history.samples = history.samples.filter((entry) => entry.at >= cutoff);
+  const last = history.samples.at(-1);
 
-  if (last && now - last.at < UPTIME_SAMPLE_MS) {
-    return;
-  }
+  if (last && now - last.at < UPTIME_SAMPLE_MS) return;
 
-  uptimeHistory.push({ at: now, online });
+  history.samples.push({ at: now, online });
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     const temporaryPath = `${UPTIME_HISTORY_PATH}.tmp`;
-    fs.writeFileSync(temporaryPath, JSON.stringify({ samples: uptimeHistory }), { mode: 0o600 });
+    fs.writeFileSync(temporaryPath, JSON.stringify({ version: 2, nodes: uptimeHistory }), { mode: 0o600 });
     fs.renameSync(temporaryPath, UPTIME_HISTORY_PATH);
   } catch (error) {
     console.warn("Could not persist Lavalink uptime history:", error.message);
   }
 }
 
-function uptime24Hours() {
+function uptime24Hours(nodeId) {
   const now = Date.now();
-  const samples = uptimeHistory.filter((entry) => entry.at >= now - UPTIME_WINDOW_MS);
+  const samples = (uptimeHistory[nodeId]?.samples || []).filter((entry) => entry.at >= now - UPTIME_WINDOW_MS);
   const firstSampleAt = samples[0]?.at || now;
   const coveredMs = Math.max(0, now - firstSampleAt);
 
@@ -130,9 +218,7 @@ function uptime24Hours() {
   for (let index = 0; index < samples.length; index += 1) {
     const current = samples[index];
     const nextAt = samples[index + 1]?.at || now;
-    if (current.online) {
-      onlineMs += Math.max(0, nextAt - current.at);
-    }
+    if (current.online) onlineMs += Math.max(0, nextAt - current.at);
   }
 
   return {
@@ -143,9 +229,7 @@ function uptime24Hours() {
 }
 
 function linuxNetworkBytes() {
-  if (process.platform !== "linux") {
-    return null;
-  }
+  if (process.platform !== "linux") return null;
 
   try {
     return fs.readFileSync("/proc/net/dev", "utf8")
@@ -153,19 +237,19 @@ function linuxNetworkBytes() {
       .slice(2)
       .reduce((total, line) => {
         const [interfaceName, values] = line.trim().split(":");
-        if (!interfaceName || !values || interfaceName.trim() === "lo") {
-          return total;
-        }
+        if (!interfaceName || !values || interfaceName.trim() === "lo") return total;
         const counters = values.trim().split(/\s+/).map(Number);
-        return total + (Number.isFinite(counters[0]) ? counters[0] : 0) + (Number.isFinite(counters[8]) ? counters[8] : 0);
+        return total
+          + (Number.isFinite(counters[0]) ? counters[0] : 0)
+          + (Number.isFinite(counters[8]) ? counters[8] : 0);
       }, 0);
   } catch {
     return null;
   }
 }
 
-function requestLavalink(route) {
-  const target = new URL(route, config.lavalink.url);
+function requestLavalink(node, route) {
+  const target = new URL(route, node.url);
   const client = target.protocol === "https:" ? https : http;
 
   return new Promise((resolve, reject) => {
@@ -174,9 +258,9 @@ function requestLavalink(route) {
       {
         method: "GET",
         headers: {
-          Authorization: config.lavalink.password,
+          Authorization: node.password,
           Accept: "application/json",
-          "User-Agent": "takeshi-lavalink-status-dashboard/1.0"
+          "User-Agent": "takeshi-lavalink-status-dashboard/1.1"
         },
         timeout: REQUEST_TIMEOUT_MS
       },
@@ -185,9 +269,7 @@ function requestLavalink(route) {
         response.setEncoding("utf8");
         response.on("data", (chunk) => {
           body += chunk;
-          if (body.length > 1_000_000) {
-            request.destroy(new Error("Lavalink response exceeded the dashboard limit."));
-          }
+          if (body.length > 1_000_000) request.destroy(new Error("Lavalink response exceeded the dashboard limit."));
         });
         response.on("end", () => {
           if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -220,10 +302,12 @@ function normaliseNews(news) {
     .filter((entry) => entry.text);
 }
 
-function publicActivity(payload) {
+function publicActivity(payload, node) {
   const items = Array.isArray(payload?.items) ? payload.items : [];
-  return items.slice(0, 50).map((item) => ({
-    id: String(item?.id || ""),
+  return items.slice(0, MAX_ACTIVITY_ITEMS).map((item) => ({
+    id: `${node.id}:${String(item?.id || "")}`,
+    nodeId: node.id,
+    nodeName: node.name,
     title: String(item?.title || "Unknown track").slice(0, 500),
     author: String(item?.author || "Unknown artist").slice(0, 500),
     durationMs: Math.max(0, Number(item?.durationMs) || 0),
@@ -265,123 +349,148 @@ function publicSourceManagers(value) {
     sources.push(name);
     if (sources.length >= 24) break;
   }
-  // The dashboard lists the sources available through the installed Lavalink
-  // stack as well as managers currently returned by Lavalink itself.
   for (const source of SOURCE_PRIORITY) {
     if (seen.has(source)) continue;
     seen.add(source);
     sources.push(source);
   }
-  return sources.sort((left, right) => {
-    const leftPriority = SOURCE_PRIORITY.indexOf(left);
-    const rightPriority = SOURCE_PRIORITY.indexOf(right);
-    const leftIndex = leftPriority === -1 ? SOURCE_PRIORITY.length : leftPriority;
-    const rightIndex = rightPriority === -1 ? SOURCE_PRIORITY.length : rightPriority;
-    return leftIndex - rightIndex || left.localeCompare(right);
-  });
+  return sources.sort(compareSources);
+}
+
+function compareSources(left, right) {
+  const leftPriority = SOURCE_PRIORITY.indexOf(left);
+  const rightPriority = SOURCE_PRIORITY.indexOf(right);
+  const leftIndex = leftPriority === -1 ? SOURCE_PRIORITY.length : leftPriority;
+  const rightIndex = rightPriority === -1 ? SOURCE_PRIORITY.length : rightPriority;
+  return leftIndex - rightIndex || left.localeCompare(right);
+}
+
+function aggregateSources(nodes) {
+  return [...new Set(nodes.flatMap((node) => node.sources || []))].sort(compareSources);
 }
 
 function unavailableActivityPayload() {
   return { available: false, items: [] };
 }
 
-function activityPayload(payload) {
-  return {
-    available: true,
-    items: publicActivity(payload)
-  };
+function activityPayload(payload, node) {
+  return { available: true, items: publicActivity(payload, node) };
 }
 
 function activitySignature(activity) {
   return JSON.stringify(activity);
 }
 
-function replaceActivityCache(nextActivity) {
-  const changed = activitySignature(activityCache) !== activitySignature(nextActivity);
-  activityCache = nextActivity;
+function replaceActivityCache(runtime, nextActivity) {
+  const changed = activitySignature(runtime.activity) !== activitySignature(nextActivity);
+  runtime.activity = nextActivity;
   return changed;
 }
 
-function createStatusPayload(statsResult, infoResult) {
-  const stats = statsResult.status === "fulfilled" ? statsResult.value : null;
-  const info = infoResult.status === "fulfilled" ? infoResult.value : null;
-  const online = Boolean(stats && info);
-  recordAvailability(online);
+function aggregateActivity() {
+  const activityByNode = config.nodes.map((node) => ({ node, activity: nodeRuntime.get(node.id).activity }));
+  const nodesWithPlugin = activityByNode.filter(({ activity }) => activity.available);
+  const items = nodesWithPlugin
+    .flatMap(({ activity }) => activity.items)
+    .sort((left, right) => (right.updatedAt || right.startedAt) - (left.updatedAt || left.startedAt))
+    .slice(0, MAX_ACTIVITY_ITEMS);
 
   return {
-    generatedAt: Date.now(),
-    refreshSeconds: config.dashboard.refreshSeconds,
-    news: normaliseNews(config.dashboard.news),
-    node: {
-      name: config.dashboard.nodeName,
-      online,
-      version: typeof info?.version?.semver === "string" ? info.version.semver : null,
-      sources: publicSourceManagers(info?.sourceManagers),
-      players: Math.max(0, Number(stats?.players) || 0),
-      playingPlayers: Math.max(0, Number(stats?.playingPlayers) || 0),
-      uptimeMs: Math.max(0, Number(stats?.uptime) || 0),
-      memory: {
-        free: Math.max(0, Number(stats?.memory?.free) || 0),
-        used: Math.max(0, Number(stats?.memory?.used) || 0),
-        allocated: Math.max(0, Number(stats?.memory?.allocated) || 0),
-        reservable: Math.max(0, Number(stats?.memory?.reservable) || 0)
-      },
-      cpu: {
-        cores: Math.max(0, Number(stats?.cpu?.cores) || 0),
-        systemLoad: Math.max(0, Number(stats?.cpu?.systemLoad) || 0),
-        lavalinkLoad: Math.max(0, Number(stats?.cpu?.lavalinkLoad) || 0)
-      },
-      uptime24h: uptime24Hours(),
-      networkBytes: linuxNetworkBytes()
-    },
-    activity: activityCache,
-    errors: {
-      stats: statsResult.status === "rejected" ? "unavailable" : null,
-      info: infoResult.status === "rejected" ? "unavailable" : null,
-      activity: activityCache.available ? null : "plugin-unavailable"
-    }
+    available: nodesWithPlugin.length > 0,
+    availableNodes: nodesWithPlugin.length,
+    totalNodes: config.nodes.length,
+    items
   };
 }
 
-async function statusPayload() {
-  // Until the realtime stream is connected, retain the original REST endpoint
-  // as a slow, backwards-compatible fallback for older plugin JARs.
-  const activityRequest = activityStreamLive
+function createNodeStatusPayload(node, statsResult, infoResult) {
+  const stats = statsResult.status === "fulfilled" ? statsResult.value : null;
+  const info = infoResult.status === "fulfilled" ? infoResult.value : null;
+  const online = Boolean(stats && info);
+  recordAvailability(node.id, online);
+
+  return {
+    id: node.id,
+    name: node.name,
+    online,
+    version: typeof info?.version?.semver === "string" ? info.version.semver : null,
+    sources: publicSourceManagers(info?.sourceManagers),
+    players: Math.max(0, Number(stats?.players) || 0),
+    playingPlayers: Math.max(0, Number(stats?.playingPlayers) || 0),
+    uptimeMs: Math.max(0, Number(stats?.uptime) || 0),
+    memory: {
+      free: Math.max(0, Number(stats?.memory?.free) || 0),
+      used: Math.max(0, Number(stats?.memory?.used) || 0),
+      allocated: Math.max(0, Number(stats?.memory?.allocated || 0)),
+      reservable: Math.max(0, Number(stats?.memory?.reservable || 0))
+    },
+    cpu: {
+      cores: Math.max(0, Number(stats?.cpu?.cores) || 0),
+      systemLoad: Math.max(0, Number(stats?.cpu?.systemLoad) || 0),
+      lavalinkLoad: Math.max(0, Number(stats?.cpu?.lavalinkLoad) || 0)
+    },
+    uptime24h: uptime24Hours(node.id),
+    networkBytes: node.local ? linuxNetworkBytes() : null
+  };
+}
+
+async function nodeStatusPayload(node) {
+  const runtime = nodeRuntime.get(node.id);
+  const activityRequest = runtime.activityStreamLive
     ? Promise.resolve(null)
-    : requestLavalink("/status/activity");
+    : requestLavalink(node, "/status/activity");
   const [statsResult, infoResult, activityResult] = await Promise.allSettled([
-    requestLavalink("/v4/stats"),
-    requestLavalink("/v4/info"),
+    requestLavalink(node, "/v4/stats"),
+    requestLavalink(node, "/v4/info"),
     activityRequest
   ]);
 
-  if (!activityStreamLive && activityResult.status === "fulfilled" && activityResult.value) {
-    replaceActivityCache(activityPayload(activityResult.value));
+  if (!runtime.activityStreamLive && activityResult.status === "fulfilled" && activityResult.value) {
+    replaceActivityCache(runtime, activityPayload(activityResult.value, node));
   }
 
-  return createStatusPayload(statsResult, infoResult);
+  return createNodeStatusPayload(node, statsResult, infoResult);
+}
+
+async function statusPayload() {
+  const nodes = await Promise.all(config.nodes.map(nodeStatusPayload));
+  return {
+    generatedAt: Date.now(),
+    refreshSeconds: config.dashboard.refreshSeconds,
+    timeZone: config.dashboard.timeZone,
+    news: normaliseNews(config.dashboard.news),
+    nodes,
+    sources: aggregateSources(nodes),
+    activity: aggregateActivity()
+  };
+}
+
+function unavailableNodePayload(node) {
+  return {
+    id: node.id,
+    name: node.name,
+    online: false,
+    version: null,
+    sources: [],
+    players: 0,
+    playingPlayers: 0,
+    uptimeMs: 0,
+    memory: { free: 0, used: 0, allocated: 0, reservable: 0 },
+    cpu: { cores: 0, systemLoad: 0, lavalinkLoad: 0 },
+    uptime24h: uptime24Hours(node.id),
+    networkBytes: null
+  };
 }
 
 function unavailableStatusPayload() {
   return {
     generatedAt: Date.now(),
     refreshSeconds: config.dashboard.refreshSeconds,
+    timeZone: config.dashboard.timeZone,
     news: normaliseNews(config.dashboard.news),
-    node: {
-      name: config.dashboard.nodeName,
-      online: false,
-      version: null,
-      sources: [],
-      players: 0,
-      playingPlayers: 0,
-      uptimeMs: 0,
-      memory: { free: 0, used: 0, allocated: 0, reservable: 0 },
-      cpu: { cores: 0, systemLoad: 0, lavalinkLoad: 0 },
-      uptime24h: uptime24Hours(),
-      networkBytes: linuxNetworkBytes()
-    },
-    activity: activityCache || unavailableActivityPayload(),
-    errors: { stats: "unavailable", info: "unavailable", activity: "plugin-unavailable" }
+    nodes: config.nodes.map(unavailableNodePayload),
+    sources: [],
+    activity: aggregateActivity()
   };
 }
 
@@ -404,32 +513,28 @@ function broadcastStatus(payload) {
   }
 }
 
-function broadcastActivityChange(snapshot) {
-  const nextActivity = activityPayload(snapshot);
-  if (!replaceActivityCache(nextActivity)) return;
+function broadcastActivityChange(node, runtime, snapshot) {
+  const nextActivity = activityPayload(snapshot, node);
+  if (!replaceActivityCache(runtime, nextActivity)) return;
 
-  // Keep node metrics from the last shared snapshot. Only the activity payload
-  // changes here, so clients can update a new track without waiting for the
-  // regular five-second node stats refresh.
   statusCache = {
     ...statusCache,
     generatedAt: Date.now(),
-    activity: activityCache,
-    errors: { ...statusCache.errors, activity: null }
+    activity: aggregateActivity()
   };
   broadcastStatus(statusCache);
 }
 
-function scheduleActivityStreamReconnect() {
-  if (activityStreamReconnectTimer) return;
-  activityStreamReconnectTimer = setTimeout(() => {
-    activityStreamReconnectTimer = null;
-    connectActivityStream();
+function scheduleActivityStreamReconnect(node, runtime) {
+  if (runtime.activityStreamReconnectTimer) return;
+  runtime.activityStreamReconnectTimer = setTimeout(() => {
+    runtime.activityStreamReconnectTimer = null;
+    connectActivityStream(node);
   }, ACTIVITY_STREAM_RETRY_MS);
-  activityStreamReconnectTimer.unref();
+  runtime.activityStreamReconnectTimer.unref();
 }
 
-function handleActivityStreamFrame(frame) {
+function handleActivityStreamFrame(node, runtime, frame) {
   const lines = frame.split(/\r?\n/);
   const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
   const data = lines
@@ -441,30 +546,31 @@ function handleActivityStreamFrame(frame) {
   if (!data) return;
 
   try {
-    const snapshot = JSON.parse(data);
-    activityStreamLive = true;
-    broadcastActivityChange(snapshot);
+    runtime.activityStreamLive = true;
+    broadcastActivityChange(node, runtime, JSON.parse(data));
   } catch (error) {
-    console.warn("Ignored an invalid activity stream message:", error.message);
+    console.warn(`Ignored an invalid activity stream message from ${node.id}:`, error.message);
   }
 }
 
-function connectActivityStream() {
-  if (activityStreamRequest || activityStreamResponse || activityStreamReconnectTimer) return;
+function connectActivityStream(node) {
+  const runtime = nodeRuntime.get(node.id);
+  if (runtime.activityStreamRequest || runtime.activityStreamResponse || runtime.activityStreamReconnectTimer) return;
 
-  const target = new URL("/status/activity/stream", config.lavalink.url);
+  const target = new URL("/status/activity/stream", node.url);
   const client = target.protocol === "https:" ? https : http;
   let closed = false;
   let streamBuffer = "";
+  let response = null;
 
   const closeAndRetry = (reason) => {
     if (closed) return;
     closed = true;
-    activityStreamLive = false;
-    if (activityStreamRequest === request) activityStreamRequest = null;
-    if (activityStreamResponse) activityStreamResponse = null;
-    if (reason) console.warn(`Activity stream closed: ${reason}`);
-    scheduleActivityStreamReconnect();
+    runtime.activityStreamLive = false;
+    if (runtime.activityStreamRequest === request) runtime.activityStreamRequest = null;
+    if (runtime.activityStreamResponse === response) runtime.activityStreamResponse = null;
+    if (reason) console.warn(`Activity stream ${node.id} closed: ${reason}`);
+    scheduleActivityStreamReconnect(node, runtime);
   };
 
   const request = client.request(
@@ -472,38 +578,39 @@ function connectActivityStream() {
     {
       method: "GET",
       headers: {
-        Authorization: config.lavalink.password,
+        Authorization: node.password,
         Accept: "text/event-stream",
-        "User-Agent": "takeshi-lavalink-status-dashboard/1.0"
+        "User-Agent": "takeshi-lavalink-status-dashboard/1.1"
       }
     },
-    (response) => {
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        response.resume();
-        closeAndRetry(`Lavalink returned HTTP ${response.statusCode}.`);
+    (incoming) => {
+      response = incoming;
+      if (incoming.statusCode < 200 || incoming.statusCode >= 300) {
+        incoming.resume();
+        closeAndRetry(`Lavalink returned HTTP ${incoming.statusCode}.`);
         return;
       }
 
-      activityStreamRequest = null;
-      activityStreamResponse = response;
-      response.setEncoding("utf8");
-      response.on("data", (chunk) => {
+      runtime.activityStreamRequest = null;
+      runtime.activityStreamResponse = incoming;
+      incoming.setEncoding("utf8");
+      incoming.on("data", (chunk) => {
         streamBuffer += chunk;
         let boundary = streamBuffer.search(/\r?\n\r?\n/);
         while (boundary !== -1) {
           const frame = streamBuffer.slice(0, boundary);
           streamBuffer = streamBuffer.slice(boundary).replace(/^\r?\n\r?\n/, "");
-          handleActivityStreamFrame(frame);
+          handleActivityStreamFrame(node, runtime, frame);
           boundary = streamBuffer.search(/\r?\n\r?\n/);
         }
       });
-      response.on("error", (error) => closeAndRetry(error.message));
-      response.on("end", () => closeAndRetry("connection ended."));
-      response.on("close", () => closeAndRetry("connection closed."));
+      incoming.on("error", (error) => closeAndRetry(error.message));
+      incoming.on("end", () => closeAndRetry("connection ended."));
+      incoming.on("close", () => closeAndRetry("connection closed."));
     }
   );
 
-  activityStreamRequest = request;
+  runtime.activityStreamRequest = request;
   request.on("error", (error) => closeAndRetry(error.message));
   request.end();
 }
@@ -555,7 +662,7 @@ function sendStatic(response, requestPath) {
   fs.createReadStream(filePath).pipe(response);
 }
 
-const server = http.createServer(async (request, response) => {
+const server = http.createServer((request, response) => {
   const requestUrl = new URL(request.url || "/", "http://localhost");
 
   if (request.method !== "GET") {
@@ -569,7 +676,7 @@ const server = http.createServer(async (request, response) => {
   }
 
   if (requestUrl.pathname === "/api/status") {
-    sendJson(response, statusCache.node.online ? 200 : 503, statusCache);
+    sendJson(response, statusCache.nodes.some((node) => node.online) ? 200 : 503, statusCache);
     return;
   }
 
@@ -595,9 +702,6 @@ server.listen(config.listen.port, config.listen.host, () => {
   console.log(`Takeshi Lavalink status dashboard listening on http://${config.listen.host}:${config.listen.port}`);
 });
 
-// Node metrics are polled once for the whole dashboard. Track activity arrives
-// through one local realtime stream, then every browser receives the shared
-// snapshot through Server-Sent Events instead of triggering its own poll.
 void refreshStatusCache();
-connectActivityStream();
+for (const node of config.nodes) connectActivityStream(node);
 setInterval(refreshStatusCache, config.dashboard.refreshSeconds * 1000).unref();

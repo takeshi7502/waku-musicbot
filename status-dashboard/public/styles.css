@@ -817,3 +817,106 @@ footer { padding-top: 17px; font-size: .72rem; }
   }
   .track-enter { animation: none; }
 }
+
+/* Multi-node accordion. Node metrics stay collapsed until a visitor asks for them. */
+.node-section {
+  margin: 0 0 28px;
+  padding: 0;
+  overflow: hidden;
+}
+.node-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 16px 12px;
+  border-bottom: 3px solid #0b120c;
+  background: rgba(7, 16, 9, .22);
+}
+.node-section-heading .eyebrow { margin-bottom: 6px; }
+.node-list { display: grid; }
+.node-card {
+  margin: 0;
+  overflow: hidden;
+  border-bottom: 4px solid #0b120c;
+  background: rgba(7, 16, 9, .33);
+}
+.node-card:last-child { border-bottom: 0; }
+.node-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 70px;
+  padding: 13px 16px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, filter 140ms ease;
+}
+.node-summary:hover { background: rgba(117, 211, 107, .075); filter: brightness(1.06); }
+.node-summary:focus-visible { outline: 3px solid var(--diamond); outline-offset: -3px; }
+.node-summary-right {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  flex: 0 0 auto;
+}
+.node-copy { display: grid; min-width: 0; gap: 2px; }
+.node-name {
+  overflow: hidden;
+  color: #fff9df;
+  font-size: 1.56rem;
+  font-weight: 700;
+  letter-spacing: -.025em;
+  line-height: 1.08;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-state {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: .9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-caret {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  color: var(--grass-bright);
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: transform 160ms ease;
+}
+.node-card.is-open .node-caret { transform: rotate(180deg); }
+.node-metrics-wrap { border-top: 3px solid #0b120c; }
+.node-card.offline .node-orb { background: var(--redstone); }
+
+@media (max-width: 700px) {
+  .node-section-heading { padding: 13px 14px 11px; }
+  .node-summary { align-items: flex-start; flex-wrap: wrap; min-height: 0; padding: 13px 14px; }
+  .node-summary-right { margin-left: auto; }
+  .node-name { font-size: 1.35rem; }
+  .node-state { font-size: .84rem; }
+}
+
+@media (max-width: 480px) {
+  .node-summary { gap: 11px; }
+  .node-summary-right { width: 100%; }
+  .node-summary-right .version-pill { margin-right: auto; }
+  .node-name { font-size: 1.22rem; }
+  .node-state { white-space: normal; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .node-summary,
+  .node-caret { transition: none; }
+}
