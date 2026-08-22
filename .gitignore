@@ -2,7 +2,7 @@
 config.js
 dashboard/
 data/
-lavalink/
+/lavalink/
 logs.log
 node_modules/
 package-lock.json
