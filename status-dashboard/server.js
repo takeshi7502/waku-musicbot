@@ -12,6 +12,7 @@ const CONFIG_PATH = path.join(ROOT, "config.json");
 const DATA_DIR = path.join(ROOT, "data");
 const UPTIME_HISTORY_PATH = path.join(DATA_DIR, "uptime-history.json");
 const REQUEST_TIMEOUT_MS = 3500;
+const ACTIVITY_STREAM_RETRY_MS = 3000;
 const UPTIME_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UPTIME_SAMPLE_MS = 60 * 1000;
 const SOURCE_PRIORITY = [
@@ -74,9 +75,14 @@ function clamp(value, min, max) {
 
 const config = loadConfig();
 let uptimeHistory = loadUptimeHistory();
+let activityCache = unavailableActivityPayload();
 let statusCache = unavailableStatusPayload();
 let statusRefreshInFlight = null;
 const statusSubscribers = new Set();
+let activityStreamRequest = null;
+let activityStreamResponse = null;
+let activityStreamReconnectTimer = null;
+let activityStreamLive = false;
 
 function loadUptimeHistory() {
   try {
@@ -275,16 +281,30 @@ function publicSourceManagers(value) {
   });
 }
 
-async function statusPayload() {
-  const [statsResult, infoResult, activityResult] = await Promise.allSettled([
-    requestLavalink("/v4/stats"),
-    requestLavalink("/v4/info"),
-    requestLavalink("/status/activity")
-  ]);
+function unavailableActivityPayload() {
+  return { available: false, items: [] };
+}
 
+function activityPayload(payload) {
+  return {
+    available: true,
+    items: publicActivity(payload)
+  };
+}
+
+function activitySignature(activity) {
+  return JSON.stringify(activity);
+}
+
+function replaceActivityCache(nextActivity) {
+  const changed = activitySignature(activityCache) !== activitySignature(nextActivity);
+  activityCache = nextActivity;
+  return changed;
+}
+
+function createStatusPayload(statsResult, infoResult) {
   const stats = statsResult.status === "fulfilled" ? statsResult.value : null;
   const info = infoResult.status === "fulfilled" ? infoResult.value : null;
-  const activityAvailable = activityResult.status === "fulfilled";
   const online = Boolean(stats && info);
   recordAvailability(online);
 
@@ -314,16 +334,32 @@ async function statusPayload() {
       uptime24h: uptime24Hours(),
       networkBytes: linuxNetworkBytes()
     },
-    activity: {
-      available: activityAvailable,
-      items: activityAvailable ? publicActivity(activityResult.value) : []
-    },
+    activity: activityCache,
     errors: {
       stats: statsResult.status === "rejected" ? "unavailable" : null,
       info: infoResult.status === "rejected" ? "unavailable" : null,
-      activity: activityResult.status === "rejected" ? "plugin-unavailable" : null
+      activity: activityCache.available ? null : "plugin-unavailable"
     }
   };
+}
+
+async function statusPayload() {
+  // Until the realtime stream is connected, retain the original REST endpoint
+  // as a slow, backwards-compatible fallback for older plugin JARs.
+  const activityRequest = activityStreamLive
+    ? Promise.resolve(null)
+    : requestLavalink("/status/activity");
+  const [statsResult, infoResult, activityResult] = await Promise.allSettled([
+    requestLavalink("/v4/stats"),
+    requestLavalink("/v4/info"),
+    activityRequest
+  ]);
+
+  if (!activityStreamLive && activityResult.status === "fulfilled" && activityResult.value) {
+    replaceActivityCache(activityPayload(activityResult.value));
+  }
+
+  return createStatusPayload(statsResult, infoResult);
 }
 
 function unavailableStatusPayload() {
@@ -344,7 +380,7 @@ function unavailableStatusPayload() {
       uptime24h: uptime24Hours(),
       networkBytes: linuxNetworkBytes()
     },
-    activity: { available: false, items: [] },
+    activity: activityCache || unavailableActivityPayload(),
     errors: { stats: "unavailable", info: "unavailable", activity: "plugin-unavailable" }
   };
 }
@@ -366,6 +402,110 @@ function broadcastStatus(payload) {
       response.destroy();
     }
   }
+}
+
+function broadcastActivityChange(snapshot) {
+  const nextActivity = activityPayload(snapshot);
+  if (!replaceActivityCache(nextActivity)) return;
+
+  // Keep node metrics from the last shared snapshot. Only the activity payload
+  // changes here, so clients can update a new track without waiting for the
+  // regular five-second node stats refresh.
+  statusCache = {
+    ...statusCache,
+    generatedAt: Date.now(),
+    activity: activityCache,
+    errors: { ...statusCache.errors, activity: null }
+  };
+  broadcastStatus(statusCache);
+}
+
+function scheduleActivityStreamReconnect() {
+  if (activityStreamReconnectTimer) return;
+  activityStreamReconnectTimer = setTimeout(() => {
+    activityStreamReconnectTimer = null;
+    connectActivityStream();
+  }, ACTIVITY_STREAM_RETRY_MS);
+  activityStreamReconnectTimer.unref();
+}
+
+function handleActivityStreamFrame(frame) {
+  const lines = frame.split(/\r?\n/);
+  const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+  const data = lines
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+
+  if (event && event !== "activity") return;
+  if (!data) return;
+
+  try {
+    const snapshot = JSON.parse(data);
+    activityStreamLive = true;
+    broadcastActivityChange(snapshot);
+  } catch (error) {
+    console.warn("Ignored an invalid activity stream message:", error.message);
+  }
+}
+
+function connectActivityStream() {
+  if (activityStreamRequest || activityStreamResponse || activityStreamReconnectTimer) return;
+
+  const target = new URL("/status/activity/stream", config.lavalink.url);
+  const client = target.protocol === "https:" ? https : http;
+  let closed = false;
+  let streamBuffer = "";
+
+  const closeAndRetry = (reason) => {
+    if (closed) return;
+    closed = true;
+    activityStreamLive = false;
+    if (activityStreamRequest === request) activityStreamRequest = null;
+    if (activityStreamResponse) activityStreamResponse = null;
+    if (reason) console.warn(`Activity stream closed: ${reason}`);
+    scheduleActivityStreamReconnect();
+  };
+
+  const request = client.request(
+    target,
+    {
+      method: "GET",
+      headers: {
+        Authorization: config.lavalink.password,
+        Accept: "text/event-stream",
+        "User-Agent": "takeshi-lavalink-status-dashboard/1.0"
+      }
+    },
+    (response) => {
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        response.resume();
+        closeAndRetry(`Lavalink returned HTTP ${response.statusCode}.`);
+        return;
+      }
+
+      activityStreamRequest = null;
+      activityStreamResponse = response;
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        streamBuffer += chunk;
+        let boundary = streamBuffer.search(/\r?\n\r?\n/);
+        while (boundary !== -1) {
+          const frame = streamBuffer.slice(0, boundary);
+          streamBuffer = streamBuffer.slice(boundary).replace(/^\r?\n\r?\n/, "");
+          handleActivityStreamFrame(frame);
+          boundary = streamBuffer.search(/\r?\n\r?\n/);
+        }
+      });
+      response.on("error", (error) => closeAndRetry(error.message));
+      response.on("end", () => closeAndRetry("connection ended."));
+      response.on("close", () => closeAndRetry("connection closed."));
+    }
+  );
+
+  activityStreamRequest = request;
+  request.on("error", (error) => closeAndRetry(error.message));
+  request.end();
 }
 
 function refreshStatusCache() {
@@ -455,7 +595,9 @@ server.listen(config.listen.port, config.listen.host, () => {
   console.log(`Takeshi Lavalink status dashboard listening on http://${config.listen.host}:${config.listen.port}`);
 });
 
-// Lavalink is polled once for the whole dashboard. Every browser receives this
-// shared snapshot through Server-Sent Events instead of triggering its own poll.
+// Node metrics are polled once for the whole dashboard. Track activity arrives
+// through one local realtime stream, then every browser receives the shared
+// snapshot through Server-Sent Events instead of triggering its own poll.
 void refreshStatusCache();
+connectActivityStream();
 setInterval(refreshStatusCache, config.dashboard.refreshSeconds * 1000).unref();

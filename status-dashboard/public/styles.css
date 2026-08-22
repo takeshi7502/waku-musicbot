@@ -500,6 +500,11 @@ h3 {
   overflow: hidden;
 }
 .track.playing { border-color: #4b9f76; background: linear-gradient(90deg, #1c4030, #182b21); box-shadow: inset 4px 0 0 var(--emerald); }
+.track-enter { animation: track-arrive 220ms ease-out both; }
+@keyframes track-arrive {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .track-art,
 .track-art-fallback {
   width: 44px;
@@ -809,4 +814,5 @@ footer { padding-top: 17px; font-size: .72rem; }
   .notice-button:hover {
     transform: none;
   }
+  .track-enter { animation: none; }
 }

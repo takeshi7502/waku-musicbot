@@ -24,7 +24,7 @@ chmod +x gradlew
 ./gradlew clean build
 ```
 
-Copy `build/libs/takeshi-status-plugin-1.0.0.jar` to the running Lavalink
+Copy `build/libs/takeshi-status-plugin-1.1.0.jar` to the running Lavalink
 instance's `plugins/` directory, then restart `lavalink`.
 
 Lavalink automatically loads JAR files placed in `plugins/`; no change to
@@ -51,5 +51,13 @@ changes do not require rebuilding this plugin.
 
 `GET /status/activity`
 
-It is consumed by the loopback-only status dashboard server. Do not publish this
-endpoint directly; it follows Lavalink's normal REST authentication setup.
+`GET /status/activity/stream`
+
+The dashboard keeps one authenticated Server-Sent Events connection to the
+second endpoint and fans changes out to all public visitors. This lets a newly
+started, replaced or finished track appear immediately without increasing
+Lavalink REST traffic per visitor. The JSON endpoint remains as a compatible
+fallback if the stream is temporarily unavailable.
+
+Do not publish either endpoint directly; both follow Lavalink's normal REST
+authentication setup.

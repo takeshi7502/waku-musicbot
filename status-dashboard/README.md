@@ -7,10 +7,11 @@ Discord bot.
 ## What it shows
 
 - Direct Lavalink statistics: online state, player counts, uptime, CPU and RAM.
-- A live/recent feed of up to 50 tracks, provided by `../status-plugin`.
-- One shared Lavalink refresh for the entire dashboard, streamed to connected
-  browsers with Server-Sent Events; visitors never trigger their own Lavalink
-  polling loop.
+- A live/recent feed of up to 50 tracks, provided immediately by
+  `../status-plugin` over one local Server-Sent Events connection.
+- One shared five-second Lavalink refresh for node statistics. Both the node
+  snapshot and realtime activity changes are streamed to connected browsers;
+  visitors never trigger their own Lavalink polling loop.
 - Static operator notices configured in `config.json`, optionally with a safe
   `buttonLabel` and `buttonUrl` link.
 - Availability over the last 24 hours, sampled directly from Lavalink once per
@@ -43,7 +44,7 @@ The expected VPS layout is:
    cd ~/lavalink/status-plugin
    chmod +x gradlew
    ./gradlew clean build
-   cp build/libs/takeshi-status-plugin-1.0.0.jar ~/lavalink/plugins/
+   cp build/libs/takeshi-status-plugin-1.1.0.jar ~/lavalink/plugins/
    sudo systemctl restart lavalink
    ```
 
@@ -86,7 +87,8 @@ The dashboard stays on loopback. A Cloudflare Tunnel can publish only
 Lavalink VPS. Copy `cloudflared/config.example.yml`, replace its placeholders,
 then run the tunnel as its own service.
 
-Never expose port `3333`, `/v4/*`, or `/status/activity` directly to the
+Never expose port `3333`, `/v4/*`, `/status/activity`, or
+`/status/activity/stream` directly to the
 internet. The dashboard is the sole public surface.
 
 ## Operational notes
@@ -100,4 +102,5 @@ internet. The dashboard is the sole public surface.
   ```bash
   sudo journalctl -u lavalink -n 150 --no-pager
   curl -H 'Authorization: YOUR_LAVALINK_PASSWORD' http://127.0.0.1:3333/status/activity
+  curl -N -H 'Authorization: YOUR_LAVALINK_PASSWORD' http://127.0.0.1:3333/status/activity/stream
   ```

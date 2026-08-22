@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.takeshi.lavalink"
-version = "1.0.0"
+version = "1.1.0"
 
 // Build against a v4 baseline by default, while allowing a release upgrade to
 // be checked without editing this file. These values affect compilation only;
@@ -38,6 +38,7 @@ tasks.withType<JavaCompile>().configureEach {
 }
 
 dependencies {
-    // Lavalink already provides Spring Web at runtime. Compile against it only.
+    // Lavalink already provides Spring Web/MVC at runtime. Compile against them only.
     compileOnly("org.springframework:spring-web:6.2.5")
+    compileOnly("org.springframework:spring-webmvc:6.2.5")
 }

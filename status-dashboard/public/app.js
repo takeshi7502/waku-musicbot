@@ -28,6 +28,7 @@ const elements = {
 let lastNewsSignature = null;
 let lastSourcesSignature = null;
 let lastActivitySignature = null;
+let activityInitialised = false;
 
 function formatDuration(milliseconds) {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -235,6 +236,49 @@ function makeArtwork(item) {
   return artwork;
 }
 
+function createTrackRow(item, animate) {
+  const row = document.createElement("article");
+  row.className = `track ${item.status}`;
+  row.dataset.trackId = item.id;
+  if (animate) {
+    row.classList.add("track-enter");
+    row.addEventListener("animationend", () => row.classList.remove("track-enter"), { once: true });
+  }
+  row.append(makeArtwork(item));
+
+  const detail = document.createElement("div");
+  detail.className = "track-detail";
+  const title = document.createElement(item.uri ? "a" : "p");
+  title.className = "track-title";
+  title.textContent = item.title;
+  title.title = item.title;
+  if (item.uri) {
+    title.href = item.uri;
+    title.target = "_blank";
+    title.rel = "noopener noreferrer";
+  }
+  const author = document.createElement("p");
+  author.className = "track-author";
+  author.textContent = item.author;
+  const meta = document.createElement("p");
+  meta.className = "track-meta";
+  meta.textContent = `${formatTrackDuration(item.durationMs, item.stream)} · ${sourceName(item.source)}`;
+  detail.append(title, author, meta);
+
+  const state = document.createElement("span");
+  state.className = "track-state";
+  row.append(detail, state);
+  updateTrackRow(row, item);
+  return row;
+}
+
+function updateTrackRow(row, item) {
+  for (const status of ["playing", "finished", "stopped", "replaced", "failed", "stuck"]) {
+    row.classList.toggle(status, status === item.status);
+  }
+  row.querySelector(".track-state").textContent = stateLabel(item.status);
+}
+
 function renderActivity(activity) {
   const items = Array.isArray(activity.items) ? activity.items : [];
   const signature = JSON.stringify({ available: Boolean(activity.available), items });
@@ -242,51 +286,42 @@ function renderActivity(activity) {
   lastActivitySignature = signature;
 
   elements.activityCount.textContent = `${items.length} mục`;
-  elements.activityList.replaceChildren();
 
   if (!activity.available) {
+    activityInitialised = false;
     elements.activitySubtitle.textContent = "Status plugin chưa sẵn sàng. Node vẫn có thể hoạt động bình thường.";
-    elements.activityList.append(makeEmptyState("Chưa đọc được activity plugin. Hãy kiểm tra JAR plugin và restart Lavalink."));
+    elements.activityList.replaceChildren(makeEmptyState("Chưa đọc được activity plugin. Hãy kiểm tra JAR plugin và restart Lavalink."));
     return;
   }
 
   if (!items.length) {
+    activityInitialised = true;
     elements.activitySubtitle.textContent = "Bài hát sẽ xuất hiện ở đây ngay khi Lavalink bắt đầu phát.";
-    elements.activityList.append(makeEmptyState("Chưa có hoạt động phát nhạc trong phiên Lavalink hiện tại."));
+    elements.activityList.replaceChildren(makeEmptyState("Chưa có hoạt động phát nhạc trong phiên Lavalink hiện tại."));
     return;
   }
 
   elements.activitySubtitle.textContent = "Feed này chỉ hiển thị metadata bài hát đã được plugin lọc an toàn.";
-  for (const item of items) {
-    const row = document.createElement("article");
-    row.className = `track ${item.status}`;
-    row.append(makeArtwork(item));
+  elements.activityList.querySelector(".empty-state")?.remove();
 
-    const detail = document.createElement("div");
-    detail.className = "track-detail";
-    const title = document.createElement(item.uri ? "a" : "p");
-    title.className = "track-title";
-    title.textContent = item.title;
-    title.title = item.title;
-    if (item.uri) {
-      title.href = item.uri;
-      title.target = "_blank";
-      title.rel = "noopener noreferrer";
-    }
-    const author = document.createElement("p");
-    author.className = "track-author";
-    author.textContent = item.author;
-    const meta = document.createElement("p");
-    meta.className = "track-meta";
-    meta.textContent = `${formatTrackDuration(item.durationMs, item.stream)} · ${sourceName(item.source)}`;
-    detail.append(title, author, meta);
-
-    const state = document.createElement("span");
-    state.className = "track-state";
-    state.textContent = stateLabel(item.status);
-    row.append(detail, state);
-    elements.activityList.append(row);
+  const expectedIds = new Set(items.map((item) => item.id));
+  const existingRows = new Map(
+    [...elements.activityList.querySelectorAll(".track")].map((row) => [row.dataset.trackId, row])
+  );
+  for (const [id, row] of existingRows) {
+    if (!expectedIds.has(id)) row.remove();
   }
+
+  // Insert from oldest to newest so new entries land at the top. Existing rows
+  // are retained and only their state badge changes; that prevents the feed,
+  // artwork and source icons from flashing on unrelated node refreshes.
+  for (const item of [...items].reverse()) {
+    let row = existingRows.get(item.id);
+    if (!row) row = createTrackRow(item, activityInitialised);
+    else updateTrackRow(row, item);
+    elements.activityList.prepend(row);
+  }
+  activityInitialised = true;
 }
 
 function makeEmptyState(message) {

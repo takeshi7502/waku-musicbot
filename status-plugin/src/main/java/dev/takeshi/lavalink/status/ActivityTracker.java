@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * Keeps a small, in-memory, sanitised activity feed for the status dashboard.
@@ -34,6 +35,7 @@ public final class ActivityTracker extends PluginEventHandler {
 
     private final ConcurrentLinkedDeque<ActivityItem> activity = new ConcurrentLinkedDeque<>();
     private final ConcurrentMap<Long, ActivityItem> activeTracks = new ConcurrentHashMap<>();
+    private final java.util.Set<SseEmitter> subscribers = ConcurrentHashMap.newKeySet();
 
     public ActivityTracker() {
         LOG.info("Takeshi Lavalink status activity plugin loaded");
@@ -61,6 +63,19 @@ public final class ActivityTracker extends PluginEventHandler {
                 new ArrayList<>(activity));
     }
 
+    public SseEmitter subscribe() {
+        // The dashboard reconnects automatically if either side restarts. No
+        // timeout is used here because the stream is loopback-only and idle
+        // periods are expected when nobody is listening to music.
+        SseEmitter emitter = new SseEmitter(0L);
+        subscribers.add(emitter);
+        emitter.onCompletion(() -> subscribers.remove(emitter));
+        emitter.onTimeout(() -> subscribers.remove(emitter));
+        emitter.onError(ignored -> subscribers.remove(emitter));
+        sendSnapshot(emitter, snapshot());
+        return emitter;
+    }
+
     private void trackStarted(long guildId, AudioTrack track) {
         ActivityItem previous = activeTracks.remove(guildId);
         if (previous != null && "playing".equals(previous.getStatus())) {
@@ -71,6 +86,7 @@ public final class ActivityTracker extends PluginEventHandler {
         activeTracks.put(guildId, item);
         activity.addFirst(item);
         trimToLimit();
+        publishActivity();
     }
 
     private void trackEnded(long guildId, AudioTrack track, AudioTrackEndReason reason) {
@@ -89,19 +105,35 @@ public final class ActivityTracker extends PluginEventHandler {
         ActivityItem item = activeTracks.remove(guildId);
         if (item != null) {
             item.finish(status);
-            return;
+        } else {
+            // A plugin reload can make an end event arrive without a tracked start event.
+            ActivityItem recovered = ActivityItem.from(track);
+            recovered.finish(status);
+            activity.addFirst(recovered);
+            trimToLimit();
         }
-
-        // A plugin reload can make an end event arrive without a tracked start event.
-        ActivityItem recovered = ActivityItem.from(track);
-        recovered.finish(status);
-        activity.addFirst(recovered);
-        trimToLimit();
+        publishActivity();
     }
 
     private void trimToLimit() {
         while (activity.size() > MAX_ENTRIES) {
             activity.pollLast();
+        }
+    }
+
+    private void publishActivity() {
+        ActivitySnapshot snapshot = snapshot();
+        for (SseEmitter emitter : subscribers) {
+            sendSnapshot(emitter, snapshot);
+        }
+    }
+
+    private void sendSnapshot(SseEmitter emitter, ActivitySnapshot snapshot) {
+        try {
+            emitter.send(SseEmitter.event().name("activity").data(snapshot));
+        } catch (Exception ignored) {
+            subscribers.remove(emitter);
+            emitter.complete();
         }
     }
 
