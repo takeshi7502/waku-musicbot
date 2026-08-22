@@ -479,7 +479,8 @@ h3 {
   max-height: 703px;
   padding-right: 7px;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  /* Hand scroll/touch back to the page once the feed reaches either end. */
+  overscroll-behavior-y: auto;
   scrollbar-color: var(--grass-bright) #0d160e;
   scrollbar-width: thin;
 }
