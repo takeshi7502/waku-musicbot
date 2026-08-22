@@ -8,6 +8,9 @@ Discord bot.
 
 - Direct Lavalink statistics: online state, player counts, uptime, CPU and RAM.
 - A live/recent feed of up to 50 tracks, provided by `../status-plugin`.
+- One shared Lavalink refresh for the entire dashboard, streamed to connected
+  browsers with Server-Sent Events; visitors never trigger their own Lavalink
+  polling loop.
 - Static operator notices configured in `config.json`, optionally with a safe
   `buttonLabel` and `buttonUrl` link.
 - Availability over the last 24 hours, sampled directly from Lavalink once per

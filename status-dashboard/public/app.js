@@ -25,7 +25,9 @@ const elements = {
   activityList: document.querySelector("#activity-list")
 };
 
-let timer;
+let lastNewsSignature = null;
+let lastSourcesSignature = null;
+let lastActivitySignature = null;
 
 function formatDuration(milliseconds) {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -114,6 +116,10 @@ function stateLabel(state) {
 }
 
 function renderNews(news) {
+  const signature = JSON.stringify(news);
+  if (signature === lastNewsSignature) return;
+  lastNewsSignature = signature;
+
   elements.noticeList.replaceChildren();
   const entries = news.length ? news : [{ level: "info", text: "Không có thông báo mới." }];
   for (const entry of entries) {
@@ -161,6 +167,10 @@ function renderNode(node) {
 
 function renderSources(node) {
   const sources = Array.isArray(node.sources) ? node.sources : [];
+  const signature = JSON.stringify({ online: Boolean(node.online), sources });
+  if (signature === lastSourcesSignature) return;
+  lastSourcesSignature = signature;
+
   elements.sourceList.replaceChildren();
   elements.sourceCount.textContent = sources.length ? `${sources.length} nguồn` : "Chưa có dữ liệu";
 
@@ -227,6 +237,10 @@ function makeArtwork(item) {
 
 function renderActivity(activity) {
   const items = Array.isArray(activity.items) ? activity.items : [];
+  const signature = JSON.stringify({ available: Boolean(activity.available), items });
+  if (signature === lastActivitySignature) return;
+  lastActivitySignature = signature;
+
   elements.activityCount.textContent = `${items.length} mục`;
   elements.activityList.replaceChildren();
 
@@ -290,23 +304,16 @@ function render(payload) {
   elements.lastUpdate.textContent = new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(payload.generatedAt || Date.now()));
 }
 
-async function update() {
-  try {
-    const response = await fetch("/api/status", { cache: "no-store" });
-    const payload = await response.json();
-    render(payload);
-    window.clearTimeout(timer);
-    timer = window.setTimeout(update, Math.max(3000, Number(payload.refreshSeconds || 5) * 1000));
-  } catch {
-    render({
-      generatedAt: Date.now(),
-      news: [{ level: "warning", text: "Không thể liên hệ status service. Trang sẽ tự thử lại." }],
-      node: { online: false, name: "Lavalink" },
-      activity: { available: false, items: [] }
-    });
-    window.clearTimeout(timer);
-    timer = window.setTimeout(update, 5000);
-  }
+function startStatusStream() {
+  const stream = new EventSource("/api/status/stream");
+  stream.addEventListener("status", (event) => {
+    try {
+      render(JSON.parse(event.data));
+    } catch {
+      // Ignore one malformed event; EventSource keeps the last valid state.
+    }
+  });
+  window.addEventListener("beforeunload", () => stream.close(), { once: true });
 }
 
-update();
+startStatusStream();

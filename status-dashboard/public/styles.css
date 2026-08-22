@@ -449,11 +449,11 @@ h3 {
 }
 .source-mark {
   display: grid;
-  width: 24px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   place-items: center;
   color: #fbf6e2;
-  background: #47615e;
+  background: transparent;
   font-family: "Roboto Mono", "Cascadia Mono", Consolas, monospace;
   font-size: .57rem;
   font-weight: 700;
@@ -461,19 +461,13 @@ h3 {
 }
 .source-icon {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
 }
-.source-item[data-source] .source-mark { background: #101711; }
+.source-item[data-source] .source-mark { background: transparent; box-shadow: none; }
 .source-label { overflow: hidden; color: #f7f2de; font-size: .86rem; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .source-ready { color: var(--emerald); font-family: "Roboto Mono", "Cascadia Mono", Consolas, monospace; font-size: .59rem; font-weight: 700; }
-.source-item[data-source="youtube"] .source-mark { background: #d94943; }
-.source-item[data-source="spotify"] .source-mark { background: #3e9b62; }
-.source-item[data-source="soundcloud"] .source-mark { background: #dd7d3e; }
-.source-item[data-source="applemusic"] .source-mark { background: #df5b65; }
-.source-item[data-source="deezer"] .source-mark { background: #677dd8; }
-.source-item[data-source="http"] .source-mark { background: #3d81a5; }
 .source-empty { padding: 7px 9px; border: 2px dashed #688165; color: var(--muted); font-size: .88rem; }
 
 .activity-section { padding: 22px; }

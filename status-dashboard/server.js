@@ -74,6 +74,9 @@ function clamp(value, min, max) {
 
 const config = loadConfig();
 let uptimeHistory = loadUptimeHistory();
+let statusCache = unavailableStatusPayload();
+let statusRefreshInFlight = null;
+const statusSubscribers = new Set();
 
 function loadUptimeHistory() {
   try {
@@ -323,6 +326,68 @@ async function statusPayload() {
   };
 }
 
+function unavailableStatusPayload() {
+  return {
+    generatedAt: Date.now(),
+    refreshSeconds: config.dashboard.refreshSeconds,
+    news: normaliseNews(config.dashboard.news),
+    node: {
+      name: config.dashboard.nodeName,
+      online: false,
+      version: null,
+      sources: [],
+      players: 0,
+      playingPlayers: 0,
+      uptimeMs: 0,
+      memory: { free: 0, used: 0, allocated: 0, reservable: 0 },
+      cpu: { cores: 0, systemLoad: 0, lavalinkLoad: 0 },
+      uptime24h: uptime24Hours(),
+      networkBytes: linuxNetworkBytes()
+    },
+    activity: { available: false, items: [] },
+    errors: { stats: "unavailable", info: "unavailable", activity: "plugin-unavailable" }
+  };
+}
+
+function sendStatusEvent(response, payload) {
+  response.write(`event: status\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+function broadcastStatus(payload) {
+  for (const response of statusSubscribers) {
+    if (response.writableEnded || response.destroyed) {
+      statusSubscribers.delete(response);
+      continue;
+    }
+    try {
+      sendStatusEvent(response, payload);
+    } catch {
+      statusSubscribers.delete(response);
+      response.destroy();
+    }
+  }
+}
+
+function refreshStatusCache() {
+  if (statusRefreshInFlight) return statusRefreshInFlight;
+
+  statusRefreshInFlight = statusPayload()
+    .then((payload) => {
+      statusCache = payload;
+      broadcastStatus(statusCache);
+    })
+    .catch((error) => {
+      console.error("Could not refresh status cache:", error.message);
+      statusCache = unavailableStatusPayload();
+      broadcastStatus(statusCache);
+    })
+    .finally(() => {
+      statusRefreshInFlight = null;
+    });
+
+  return statusRefreshInFlight;
+}
+
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
@@ -364,13 +429,22 @@ const server = http.createServer(async (request, response) => {
   }
 
   if (requestUrl.pathname === "/api/status") {
-    try {
-      const payload = await statusPayload();
-      sendJson(response, payload.node.online ? 200 : 503, payload);
-    } catch (error) {
-      console.error("Could not build status payload:", error.message);
-      sendJson(response, 503, { error: "Status data is temporarily unavailable." });
-    }
+    sendJson(response, statusCache.node.online ? 200 : 503, statusCache);
+    return;
+  }
+
+  if (requestUrl.pathname === "/api/status/stream") {
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+      "X-Content-Type-Options": "nosniff"
+    });
+    response.write("retry: 3000\n\n");
+    statusSubscribers.add(response);
+    sendStatusEvent(response, statusCache);
+    request.on("close", () => statusSubscribers.delete(response));
     return;
   }
 
@@ -381,8 +455,7 @@ server.listen(config.listen.port, config.listen.host, () => {
   console.log(`Takeshi Lavalink status dashboard listening on http://${config.listen.host}:${config.listen.port}`);
 });
 
-// Keeps 24-hour availability meaningful even while nobody has the page open.
-setInterval(() => {
-  Promise.allSettled([requestLavalink("/v4/stats"), requestLavalink("/v4/info")])
-    .then(([stats, info]) => recordAvailability(stats.status === "fulfilled" && info.status === "fulfilled"));
-}, UPTIME_SAMPLE_MS).unref();
+// Lavalink is polled once for the whole dashboard. Every browser receives this
+// shared snapshot through Server-Sent Events instead of triggering its own poll.
+void refreshStatusCache();
+setInterval(refreshStatusCache, config.dashboard.refreshSeconds * 1000).unref();
