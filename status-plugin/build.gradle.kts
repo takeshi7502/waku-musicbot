@@ -6,6 +6,12 @@ plugins {
 group = "dev.takeshi.lavalink"
 version = "1.0.0"
 
+// Build against a v4 baseline by default, while allowing a release upgrade to
+// be checked without editing this file. These values affect compilation only;
+// Lavalink loads the resulting plugin JAR at runtime.
+val lavalinkApiVersion = providers.gradleProperty("lavalinkApiVersion").orElse("4.0.0")
+val lavalinkServerVersion = providers.gradleProperty("lavalinkServerVersion").orElse("4.0.0")
+
 base {
     archivesName = "takeshi-status-plugin"
 }
@@ -16,8 +22,8 @@ repositories {
 
 lavalinkPlugin {
     name = "takeshi-status-plugin"
-    apiVersion = "4.2.1"
-    serverVersion = "4.2.2"
+    apiVersion = lavalinkApiVersion.get()
+    serverVersion = lavalinkServerVersion.get()
 }
 
 java {

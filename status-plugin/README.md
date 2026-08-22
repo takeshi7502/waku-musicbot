@@ -30,6 +30,23 @@ instance's `plugins/` directory, then restart `lavalink`.
 Lavalink automatically loads JAR files placed in `plugins/`; no change to
 `application.yml` is required for the default setup.
 
+## Compatibility
+
+The plugin is for **Lavalink v4**. Its default build target is the v4.0.0 API,
+so it is not tied to a single 4.2.2 node. It does not support Lavalink v3,
+whose plugin API is different.
+
+Before upgrading to a newer Lavalink v4 release, the same source can be built
+against that exact version without changing the project:
+
+```bash
+./gradlew clean build -PlavalinkApiVersion=4.X.Y -PlavalinkServerVersion=4.X.Y
+```
+
+Only rebuild and replace the JAR when the plugin source changes, or when you
+want to validate it against a different Lavalink v4 release. Dashboard-only
+changes do not require rebuilding this plugin.
+
 ## Endpoint
 
 `GET /status/activity`
