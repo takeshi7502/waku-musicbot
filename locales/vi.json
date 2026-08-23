@@ -117,6 +117,8 @@
     "trackStuckTitle": "Lỗi bài hát!",
     "trackStuckFooter": "Ồ! Có điều gì đó đã xảy ra không đúng nhưng không phải lỗi của bạn!",
     "botUpdated": "⚠️ **Bot vừa được cập nhật!**\nBạn dùng `/play` để phát lại nhạc nhé.",
+    "musicRestored": "⚠️ **Bot vừa được cập nhật!**\nXin lỗi vì gián đoạn, nhạc của bạn đã được mở lại.",
+    "musicRestoreFailed": "⚠️ **Bot vừa được cập nhật!**\nKhông thể tự khôi phục bài hát này. Bạn hãy dùng `/play` để phát lại nhé.",
     "serverReplaced": "⚠️ **Server nhạc đang được thay thế!**\nBạn dùng `/play` để phát lại nhạc nhé.",
     "generic": "❌ Có lỗi xảy ra khi thực hiện lệnh."
   },
@@ -346,11 +348,23 @@
   },
   "cmd": {
     "noPermission": "Bạn không được ủy quyền để sử dụng lệnh này!",
-    "noHiddenCommands": "Không có lệnh tác vụ ẩn nào.",
-    "auto_44": "Hiển thị danh sách lệnh ẩn của hệ thống",
+    "noHiddenCommands": "Không có lệnh quản trị nào.",
+    "auto_44": "Mở menu lệnh quản trị",
     "auto_45": "Lệnh Admin của {var1}",
     "auto_46": "Phiên Bản Discord Music Bot: v{var1}; Build: {var2}",
-    "auto_47": "Phiên Bản Discord Music Bot: v{var1}; Build: {var2}"
+    "auto_47": "Phiên Bản Discord Music Bot: v{var1}; Build: {var2}",
+    "systemGroup": "Hệ thống",
+    "serverGroup": "Máy chủ",
+    "otherGroup": "Khác",
+    "commands": {
+      "status": "Xem trạng thái bot và Lavalink",
+      "lavalink": "Quản lý các node Lavalink",
+      "reload": "Tải lại cấu hình và lệnh",
+      "broadcast": "Gửi thông báo đến nhiều máy chủ",
+      "setlog": "Thiết lập kênh log vào/rời server",
+      "guildleave": "Rời khỏi máy chủ đã chọn",
+      "cmd": "Mở menu lệnh quản trị"
+    }
   },
   "setlang": {
     "auto_1": "Thay đổi ngôn ngữ hệ thống của bot",
@@ -437,7 +451,7 @@
     "reloadingConfig": "♻️ **Đang tải lại cấu hình Lavalink...**\n{changes}",
     "nodesChanged": "🔄 **Nodes đã thay đổi:**",
     "nodesUnchanged": "🔄 **Không có thay đổi mới.** Kết nối lại {count} nodes...",
-    "reloadSuccess": "✅ **Tải lại Lavalink thành công!**\n**Đã kết nối:** `{connected}` nodes.",
+    "reloadSuccess": "✅ **Tải lại Lavalink thành công!**\n**Đã kết nối:** `{connected}` nodes.\n**Đã khôi phục:** `{restored}/{recoverable}` trình phát đang hoạt động.",
     "playersInterrupted": "**Dọn dẹp:** `{count}` player bị gián đoạn.",
     "reloadError": "❌ Lỗi Reload Lavalink: `{error}`",
     "errorGeneric": "❌ Lỗi: `{error}`",
@@ -504,7 +518,27 @@
     "auto_133": "✅ **Tải lại Lavalink thành công!**\n**Đã kết nối:** `{var1}` nodes.\n{var2}",
     "auto_134": "🔄 **Lavalink Đã Thay Đổi (Reload)**\n",
     "auto_135": "**Kết nối:** {var1} node",
-    "auto_136": "❌ Lỗi Reload Lavalink: `{var1}`"
+    "auto_136": "❌ Lỗi Reload Lavalink: `{var1}`",
+    "menuTitle": "Lavalink Nodes",
+    "nodeLine": "{status} {id} | `{host}:{port}` | `{password}` | `{secure}`",
+    "actionAdd": "Thêm",
+    "actionRemove": "Xoá",
+    "actionReplace": "Thay thế",
+    "actionTest": "Kiểm tra",
+    "actionReload": "Tải lại",
+    "addFormTitle": "Thêm node Lavalink",
+    "testFormTitle": "Kiểm tra node Lavalink",
+    "replaceFormTitle": "Thay thế node Lavalink",
+    "nodeFormatLabel": "ip:port:pass:secure",
+    "nodeFormatPlaceholder": "127.0.0.1:3333:password:false",
+    "formatInvalid": "❌ Sai định dạng. Dùng đúng: `ip:port:pass:true` hoặc `ip:port:pass:false`.",
+    "selectNodeRemove": "Chọn node cần xoá.",
+    "selectNodeReplace": "Chọn node cần thay thế.",
+    "noRemovableNodes": "❌ Không có node nào có thể xoá.",
+    "removeConfirm": "Bạn có chắc muốn xoá node `{id}` không?",
+    "removeConfirmButton": "Xoá {id}",
+    "removingNode": "Đang xoá node `{id}`...",
+    "notAvailable": "Không rõ"
   },
   "system": {
     "botStarted": "Đã bắt đầu bot...",

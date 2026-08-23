@@ -1,672 +1,1116 @@
-const SlashCommand = require("../../lib/SlashCommand");
 const {
-  EmbedBuilder
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require("discord.js");
-const {
-  t
-} = require("../../util/i18n");
-const path = require("path");
+const SlashCommand = require("../../lib/SlashCommand");
+const { t } = require("../../util/i18n");
 const fs = require("fs");
-const MAX_NODES = 10;
+const path = require("path");
+const { randomUUID } = require("crypto");
 
-// ====== HELPER: Tìm slot ID trống nhỏ nhất ======
-function findNextNodeId(existingNodes) {
-  for (let i = 1; i < MAX_NODES; i++) {
-    const id = `node${i}`;
-    if (!existingNodes.find(n => n.id === id)) return id;
+const MAX_NODES = 10;
+const SUBMENU_TIMEOUT = 60_000;
+const MODAL_TIMEOUT = 120_000;
+const testedNodeSessions = new Map();
+
+function getBoolean(value) {
+  return value === true || String(value).toLowerCase() === "true";
+}
+
+function isNodeEnabled(node) {
+  return node?.enabled !== false;
+}
+
+function getConfiguredNodes(client) {
+  return (client.config.nodes || []).map((node) => ({
+    ...node,
+    enabled: isNodeEnabled(node),
+  }));
+}
+
+function getNodePassword(node) {
+  return node.authorization || node.password || "";
+}
+
+function findNextNodeId(nodes) {
+  for (let index = 1; index < MAX_NODES; index += 1) {
+    const id = `node${index}`;
+    if (!nodes.some((node) => node.id === id)) return id;
   }
   return null;
 }
 
-// ====== HELPER: Ping test 1 node ======
 async function pingNode(host, port, password, secure) {
-  const proto = secure ? "https" : "http";
-  const url = `${proto}://${host}:${port}/v4/info`;
+  const protocol = secure ? "https" : "http";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
-  const startTime = Date.now();
+  const startedAt = Date.now();
+
   try {
-    const res = await fetch(url, {
+    const response = await fetch(`${protocol}://${host}:${port}/v4/info`, {
       headers: {
-        Authorization: password
+        Authorization: password,
       },
-      signal: controller.signal
+      signal: controller.signal,
     });
-    clearTimeout(timeout);
-    const latency = Date.now() - startTime;
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
     return {
       success: true,
-      data,
-      latency
+      data: await response.json(),
+      latency: Date.now() - startedAt,
     };
-  } catch (err) {
-    clearTimeout(timeout);
+  } catch (error) {
     return {
       success: false,
-      error: err.message
+      error: error.message,
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
-const command = new SlashCommand().setName("lavalink").setDescription(t("lavalink.auto_79")).setAdminOnly(true).addStringOption(option => option.setName("action").setDescription(t("lavalink.auto_80")).setRequired(true).addChoices({
-  name: t("lavalink.auto_81"),
-  value: "list"
-}, {
-  name: t("lavalink.auto_82"),
-  value: "add"
-}, {
-  name: t("lavalink.auto_83"),
-  value: "remove"
-}, {
-  name: t("lavalink.auto_84"),
-  value: "replace"
-}, {
-  name: "🔍 test — Test 1 node",
-  value: "test"
-}, {
-  name: t("lavalink.auto_85"),
-  value: "reload"
-})).addStringOption(option => option.setName("host").setDescription(t("lavalink.auto_86")).setRequired(false)).addIntegerOption(option => option.setName("port").setDescription(t("lavalink.auto_87")).setRequired(false)).addStringOption(option => option.setName("password").setDescription(t("lavalink.auto_88")).setRequired(false)).addBooleanOption(option => option.setName("secure").setDescription(t("lavalink.auto_89")).setRequired(false)).addStringOption(option => option.setName("idnode").setDescription(t("lavalink.auto_90")).setRequired(false)).setRun(async (client, interaction, options) => {
-  if (interaction.user.id !== client.config.adminId) {
-    return interaction.reply({
-      embeds: [client.ErrorEmbed(t("lavalink.auto_91"))],
-      ephemeral: true
-    });
+
+function parseNodeInput(value) {
+  const parts = String(value || "")
+    .trim()
+    .split(":");
+  if (parts.length !== 4) throw new Error(t("lavalink.formatInvalid"));
+
+  const [host, rawPort, password, rawSecure] = parts.map((part) => part.trim());
+  const port = Number(rawPort);
+  const secure = rawSecure.toLowerCase();
+  if (
+    !host ||
+    !/^[a-zA-Z0-9.-]+$/.test(host) ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535 ||
+    !password ||
+    !["true", "false"].includes(secure)
+  ) {
+    throw new Error(t("lavalink.formatInvalid"));
   }
-  await interaction.deferReply({
-    ephemeral: true
+
+  return {
+    host,
+    port,
+    password,
+    secure: secure === "true",
+  };
+}
+
+function createNodeConfig(id, input, enabled = true) {
+  return {
+    id,
+    host: input.host,
+    port: input.port,
+    authorization: input.password,
+    retryAmount: 200,
+    retryDelay: 40,
+    secure: input.secure,
+    requestTimeout: 60000,
+    enabled,
+  };
+}
+
+function buildMainEmbed(client) {
+  const nodes = getConfiguredNodes(client);
+  const liveNodes = client.manager.nodeManager.nodes;
+  const lines = nodes.map((node) => {
+    const liveNode = liveNodes.get(node.id);
+    const status = liveNode?.connected ? "🟢" : "🔴";
+    return t("lavalink.nodeLine", {
+      status,
+      id: node.id,
+      host: node.host,
+      port: node.port,
+      password: getNodePassword(node),
+      secure: getBoolean(node.secure) ? "true" : "false",
+    });
   });
-  const action = options.getString("action");
 
-  // ================================================================
-  // ACTION: LIST
-  // ================================================================
-  if (action === "list") {
-    const configNodes = [...(client.config.nodes || [])];
-    const liveNodes = client.manager.nodeManager.nodes;
-    if (configNodes.length === 0) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.noNodes"))]
-      });
-    }
-    let desc = t("lavalink.auto_92", {
-      var1: configNodes.length,
-      var2: MAX_NODES
-    });
-    for (const cfg of configNodes) {
-      const liveNode = liveNodes.get(cfg.id);
-      const isConnected = liveNode?.connected;
-      const icon = isConnected ? "🟢" : "🔴";
-      desc += `${icon} **${cfg.id}** | \`${cfg.host}:${cfg.port}\` | ${cfg.secure ? "SSL" : "Non-SSL"}`;
-      if (isConnected && liveNode.stats) {
-        desc += ` | Players: ${liveNode.stats.playingPlayers}/${liveNode.stats.players}`;
-      } else if (!isConnected) {
-        desc += t("lavalink.auto_93");
+  return new EmbedBuilder()
+    .setColor(client.config.embedColor)
+    .setTitle(t("lavalink.menuTitle"))
+    .setDescription(lines.length > 0 ? lines.join("\n") : t("lavalink.noNodes"))
+    .setTimestamp();
+}
+
+function chunk(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function buildMainComponents(client) {
+  const nodes = getConfiguredNodes(client);
+  const nodeRows = chunk(
+    nodes.map((node) =>
+      new ButtonBuilder()
+        .setCustomId(`lava:toggle:${node.id}`)
+        .setLabel(node.id)
+        .setStyle(
+          isNodeEnabled(node) ? ButtonStyle.Success : ButtonStyle.Danger
+        )
+    ),
+    5
+  ).map((buttons) => new ActionRowBuilder().addComponents(buttons));
+
+  const actionRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("lava:action:add")
+      .setLabel(t("lavalink.actionAdd"))
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId("lava:action:remove")
+      .setLabel(t("lavalink.actionRemove"))
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId("lava:action:replace")
+      .setLabel(t("lavalink.actionReplace"))
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId("lava:action:test")
+      .setLabel(t("lavalink.actionTest"))
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId("lava:action:reload")
+      .setLabel(t("lavalink.actionReload"))
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  return [...nodeRows, actionRow];
+}
+
+async function refreshMainMenu(client, mainInteraction) {
+  await mainInteraction.editReply({
+    embeds: [buildMainEmbed(client)],
+    components: buildMainComponents(client),
+  });
+}
+
+function buildInfoEmbed(client, color, description) {
+  return new EmbedBuilder()
+    .setColor(color || client.config.embedColor)
+    .setDescription(description);
+}
+
+async function notifyLavalinkChange(client, color, description) {
+  if (!client.sendLavalinkNotification) return;
+  await client
+    .sendLavalinkNotification(buildInfoEmbed(client, color, description))
+    .catch(() => {});
+}
+
+async function destroyPlayersOnNode(client, nodeId, messageKey) {
+  const players = [...client.manager.players.values()].filter(
+    (player) => player.node?.id?.toLowerCase() === nodeId.toLowerCase()
+  );
+
+  for (const player of players) {
+    try {
+      const nowPlayingMessage = player.get("nowPlayingMessage");
+      if (nowPlayingMessage) await nowPlayingMessage.delete().catch(() => {});
+
+      const textChannel = client.channels.cache.get(player.textChannelId);
+      if (textChannel) {
+        await textChannel
+          .send({
+            embeds: [
+              buildInfoEmbed(client, "#FF8800", t(messageKey)).setTimestamp(),
+            ],
+          })
+          .catch(() => {});
       }
-      desc += `\n`;
-    }
-    const embed = new EmbedBuilder().setColor(client.config.embedColor).setDescription(desc).setTimestamp();
-    return interaction.editReply({
-      embeds: [embed]
-    });
+      await player.destroy().catch(() => {});
+    } catch {}
   }
 
-  // ================================================================
-  // ACTION: TEST
-  // ================================================================
-  if (action === "test") {
-    const host = options.getString("host")?.trim();
-    const port = options.getInteger("port");
-    const password = options.getString("password");
-    const secure = options.getBoolean("secure") ?? false;
-    if (!host || !port || !password) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.requiredFields"))]
-      });
-    }
-    const proto = secure ? "https" : "http";
-    await interaction.editReply({
-      embeds: [new EmbedBuilder().setColor("#FFAA00").setDescription(t("lavalink.auto_94", {
-        var1: proto,
-        var2: host,
-        var3: port
-      }))]
-    });
-    const result = await pingNode(host, port, password, secure);
-    if (result.success) {
-      const d = result.data;
-      const embed = new EmbedBuilder().setColor("#00FF00").setDescription(`✅ **Lavalink Online!**\n` + `**Host:** \`${host}:${port}\` (${secure ? "SSL" : "Non-SSL"})\n` + `**Version:** ${d.version?.semver || "N/A"}\n` + `**Latency:** ${result.latency}ms\n` + `**Sources:** ${d.sourceManagers?.join(", ") || "N/A"}`).setTimestamp();
-      const {
-        ActionRowBuilder,
-        ButtonBuilder,
-        ButtonStyle
-      } = require("discord.js");
-      const addBtn = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("lavalink_test_add").setLabel(t("lavalink.auto_95")).setStyle(ButtonStyle.Success));
-      const msg = await interaction.editReply({
-        embeds: [embed],
-        components: [addBtn]
-      });
-      const collector = msg.createMessageComponentCollector({
-        time: 60000
-      });
-      collector.on("collect", async btn => {
-        if (btn.user.id !== interaction.user.id) {
-          return btn.reply({
-            content: t("lavalink.auto_96"),
-            ephemeral: true
-          });
-        }
-        if (btn.customId === "lavalink_test_add") {
-          collector.stop("added");
-          await btn.deferUpdate();
-          const configNodes = [...(client.config.nodes || [])];
-          if (configNodes.length >= MAX_NODES) {
-            return interaction.editReply({
-              embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.maxNodes", {
-                max: MAX_NODES
-              }))],
-              components: []
-            });
-          }
-          if (configNodes.find(n => n.host === host && n.port === port)) {
-            return interaction.editReply({
-              embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_97", {
-                var1: host,
-                var2: port
-              }))],
-              components: []
-            });
-          }
-          const newId = findNextNodeId(configNodes);
-          if (!newId) return interaction.editReply({
-            embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.noSlotAvailable"))],
-            components: []
-          });
-          const newNodeConfig = {
-            id: newId,
-            host,
-            port,
-            authorization: password,
-            retryAmount: 200,
-            retryDelay: 40,
-            secure,
-            requestTimeout: 60000
-          };
-          configNodes.push(newNodeConfig);
-          try {
-            await client.saveLavalinkNodes(configNodes);
-            client.manager.options.nodes = configNodes;
-            client.manager.nodeManager.createNode(newNodeConfig);
-            await client.manager.nodeManager.connectAll();
-            if (client.lavalinkNotified) client.lavalinkNotified.delete(newId);
-            const succEmbed = new EmbedBuilder().setColor("#00FF00").setDescription(t("lavalink.auto_98", {
-              var1: newId,
-              var2: host,
-              var3: port,
-              var4: secure ? "SSL" : "Non-SSL",
-              var5: configNodes.length,
-              var6: MAX_NODES
-            })).setTimestamp();
-            await interaction.editReply({
-              embeds: [succEmbed],
-              components: []
-            });
-            if (client.sendLavalinkNotification) {
-              client.sendLavalinkNotification(new EmbedBuilder().setColor("#00FF00").setDescription(t("lavalink.auto_99", {
-                var1: newId,
-                var2: host,
-                var3: port,
-                var4: configNodes.length
-              })).setTimestamp());
-            }
-          } catch (err) {
-            return interaction.editReply({
-              embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.errorGeneric", {
-                error: err.message
-              }))],
-              components: []
-            });
-          }
-        }
-      });
-      collector.on("end", (_, reason) => {
-        if (reason === "time") interaction.editReply({
-          components: []
-        }).catch(() => {});
-      });
-      return;
-    } else {
-      const embed = new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_100") + `**Host:** \`${host}:${port}\`\n` + t("lavalink.auto_101", {
-        var1: result.error
-      })).setTimestamp();
-      return interaction.editReply({
-        embeds: [embed]
-      });
-    }
+  return players.length;
+}
+
+async function destroyLiveNode(client, nodeId) {
+  const liveNode = client.manager.nodeManager.nodes.get(nodeId);
+  if (!liveNode) return;
+
+  try {
+    await liveNode.destroy();
+  } catch {
+    client.manager.nodeManager.nodes.delete(nodeId);
+  }
+}
+
+async function addNode(client, input, reportProgress) {
+  const nodes = getConfiguredNodes(client);
+  if (nodes.length >= MAX_NODES) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.maxNodes", { max: MAX_NODES })
+    );
+  }
+  if (
+    nodes.some(
+      (node) => node.host === input.host && Number(node.port) === input.port
+    )
+  ) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.nodeExists", {
+        host: input.host,
+        port: input.port,
+      })
+    );
   }
 
-  // ================================================================
-  // ACTION: ADD
-  // ================================================================
-  if (action === "add") {
-    const host = options.getString("host")?.trim();
-    const port = options.getInteger("port");
-    const password = options.getString("password");
-    const secure = options.getBoolean("secure") ?? false;
-    if (!host || !port || !password) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.requiredFields"))]
-      });
-    }
-    const configNodes = [...(client.config.nodes || [])];
+  await reportProgress(
+    buildInfoEmbed(
+      client,
+      "#FFAA00",
+      t("lavalink.testingBeforeAdd", {
+        host: input.host,
+        port: input.port,
+      })
+    )
+  );
+  const test = await pingNode(
+    input.host,
+    input.port,
+    input.password,
+    input.secure
+  );
+  if (!test.success) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.cannotConnectAdd", {
+        host: input.host,
+        port: input.port,
+        error: test.error,
+      })
+    );
+  }
 
-    // Kiểm tra giới hạn
-    if (configNodes.length >= MAX_NODES) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_102", {
-          var1: MAX_NODES
-        }))]
-      });
-    }
+  const id = findNextNodeId(nodes);
+  if (!id)
+    return buildInfoEmbed(client, "#FF0000", t("lavalink.noSlotAvailable"));
 
-    // Kiểm tra trùng host
-    if (configNodes.find(n => n.host === host && n.port === port)) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_103", {
-          var1: host,
-          var2: port
-        }))]
-      });
-    }
+  const node = createNodeConfig(id, input);
+  nodes.push(node);
+  try {
+    await client.saveLavalinkNodes(nodes);
+    client.manager.options.nodes = nodes;
+    client.manager.nodeManager.createNode(node);
+    await client.manager.nodeManager.connectAll();
+    client.lavalinkNotified?.delete(id);
+  } catch (error) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.errorGeneric", { error: error.message })
+    );
+  }
 
-    // Test trước khi thêm
-    await interaction.editReply({
-      embeds: [new EmbedBuilder().setColor("#FFAA00").setDescription(t("lavalink.testingBeforeAdd", {
-        host,
-        port
-      }))]
-    });
-    const result = await pingNode(host, port, password, secure);
-    if (!result.success) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_104") + `**Host:** \`${host}:${port}\`\n` + t("lavalink.auto_105", {
-          var1: result.error
-        }) + t("lavalink.auto_106"))]
-      });
-    }
+  await notifyLavalinkChange(
+    client,
+    "#00FF00",
+    t("lavalink.addedNotify", {
+      id,
+      host: input.host,
+      port: input.port,
+      count: nodes.length,
+    })
+  );
+  return buildInfoEmbed(
+    client,
+    "#00FF00",
+    t("lavalink.nodeAdded", {
+      id,
+      host: input.host,
+      port: input.port,
+      secure: input.secure ? "true" : "false",
+      latency: test.latency,
+      count: nodes.length,
+      max: MAX_NODES,
+    })
+  );
+}
 
-    // Tìm ID mới
-    const newId = findNextNodeId(configNodes);
-    if (!newId) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.noSlotAvailable"))]
-      });
-    }
+async function testNode(client, input, reportProgress) {
+  const protocol = input.secure ? "https" : "http";
+  await reportProgress(
+    buildInfoEmbed(
+      client,
+      "#FFAA00",
+      t("lavalink.pinging", {
+        url: `${protocol}://${input.host}:${input.port}`,
+      })
+    )
+  );
 
-    // Thêm vào config
-    const newNodeConfig = {
-      id: newId,
-      host,
-      port,
-      authorization: password,
-      retryAmount: 200,
-      retryDelay: 40,
-      secure,
-      requestTimeout: 60000
+  const test = await pingNode(
+    input.host,
+    input.port,
+    input.password,
+    input.secure
+  );
+  if (!test.success) {
+    return {
+      success: false,
+      embed: buildInfoEmbed(
+        client,
+        "#FF0000",
+        t("lavalink.cannotConnect", {
+          host: input.host,
+          port: input.port,
+          error: test.error,
+        })
+      ),
     };
-    configNodes.push(newNodeConfig);
-    try {
-      // Lưu cấu hình chạy được vào database (config.js trong Docker là chỉ đọc).
-      await client.saveLavalinkNodes(configNodes);
-      client.manager.options.nodes = configNodes;
-
-      // Tạo + kết nối node mới
-      client.manager.nodeManager.createNode(newNodeConfig);
-      await client.manager.nodeManager.connectAll();
-
-      // Reset cờ thông báo
-      if (client.lavalinkNotified) client.lavalinkNotified.delete(newId);
-      const embed = new EmbedBuilder().setColor("#00FF00").setDescription(t("lavalink.auto_107") + `**ID:** \`${newId}\`\n` + `**Host:** \`${host}:${port}\` (${secure ? "SSL" : "Non-SSL"})\n` + `**Latency:** ${result.latency}ms\n` + t("lavalink.auto_108", {
-        var1: configNodes.length,
-        var2: MAX_NODES
-      })).setTimestamp();
-      await interaction.editReply({
-        embeds: [embed]
-      });
-
-      // Thông báo kênh setlog
-      if (client.sendLavalinkNotification) {
-        client.sendLavalinkNotification(new EmbedBuilder().setColor("#00FF00").setDescription(t("lavalink.auto_109") + `**ID:** \`${newId}\` | **Host:** \`${host}:${port}\`\n` + t("lavalink.auto_110", {
-          var1: configNodes.length
-        })).setTimestamp());
-      }
-    } catch (err) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.errorGeneric", {
-          error: err.message
-        }))]
-      });
-    }
   }
 
-  // ================================================================
-  // ACTION: REMOVE
-  // ================================================================
-  if (action === "remove") {
-    const idnode = options.getString("idnode")?.trim().toLowerCase();
-    if (!idnode) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.requiredIdnode"))]
-      });
-    }
+  return {
+    success: true,
+    embed: buildInfoEmbed(
+      client,
+      "#00FF00",
+      t("lavalink.onlineResult", {
+        host: input.host,
+        port: input.port,
+        secure: input.secure ? "true" : "false",
+        version: test.data.version?.semver || t("lavalink.notAvailable"),
+        latency: test.latency,
+        sources:
+          test.data.sourceManagers?.join(", ") || t("lavalink.notAvailable"),
+      })
+    ),
+  };
+}
 
-    // Không cho xoá node0
-    if (idnode === "node0") {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.cannotRemoveNode0"))]
-      });
-    }
-    const configNodes = [...(client.config.nodes || [])];
-    const nodeIndex = configNodes.findIndex(n => n.id.toLowerCase() === idnode);
-    if (nodeIndex === -1) {
-      const available = configNodes.map(n => `\`${n.id}\``).join(", ");
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_111", {
-          var1: idnode,
-          var2: available
-        }))]
-      });
-    }
-    const removedNode = configNodes[nodeIndex];
-    try {
-      // Xoá player đang chạy trên node này
-      const playersOnNode = [...client.manager.players.values()].filter(p => p.node?.id?.toLowerCase() === idnode);
-      for (const player of playersOnNode) {
-        try {
-          const nowPlayingMsg = player.get("nowPlayingMessage");
-          if (nowPlayingMsg) await nowPlayingMsg.delete().catch(() => {});
-          const textChannel = client.channels.cache.get(player.textChannelId);
-          if (textChannel) {
-            await textChannel.send({
-              embeds: [new EmbedBuilder().setColor("#FF8800").setDescription(t("error.botUpdated")).setTimestamp()]
-            }).catch(() => {});
-          }
-          await player.destroy().catch(() => {});
-        } catch (e) {}
-      }
+function rememberTestedNode(input, userId, mainInteraction) {
+  const token = randomUUID();
+  testedNodeSessions.set(token, {
+    input,
+    userId,
+    mainInteraction,
+  });
+  return token;
+}
 
-      // Ngắt kết nối node
-      const liveNode = client.manager.nodeManager.nodes.get(removedNode.id);
-      if (liveNode) {
-        try {
-          await liveNode.destroy();
-        } catch (e) {
-          client.manager.nodeManager.nodes.delete(removedNode.id);
-        }
-      }
+async function offerTestedNodeAdd(client, submission, input, mainInteraction) {
+  const token = rememberTestedNode(input, submission.user.id, mainInteraction);
+  await submission.editReply({
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`lava:add-tested:${token}`)
+          .setLabel(t("lavalink.addBtn"))
+          .setStyle(ButtonStyle.Success)
+      ),
+    ],
+  });
 
-      // Xoá khỏi config
-      configNodes.splice(nodeIndex, 1);
-      await client.saveLavalinkNodes(configNodes);
-      client.manager.options.nodes = configNodes;
-
-      // Xoá cờ thông báo
-      if (client.lavalinkNotified) client.lavalinkNotified.delete(removedNode.id);
-      const embed = new EmbedBuilder().setColor("#00FF00").setDescription(t("lavalink.auto_112") + `**ID:** \`${removedNode.id}\`\n` + `**Host:** \`${removedNode.host}:${removedNode.port}\`\n` + (playersOnNode.length > 0 ? t("lavalink.auto_113", {
-        var1: playersOnNode.length
-      }) : "") + t("lavalink.auto_114", {
-        var1: configNodes.length,
-        var2: MAX_NODES
-      })).setTimestamp();
-      await interaction.editReply({
-        embeds: [embed]
-      });
-
-      // Thông báo kênh setlog
-      if (client.sendLavalinkNotification) {
-        client.sendLavalinkNotification(new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_115") + `**ID:** \`${removedNode.id}\` | **Host:** \`${removedNode.host}:${removedNode.port}\`\n` + t("lavalink.auto_116", {
-          var1: configNodes.length
-        })).setTimestamp());
-      }
-    } catch (err) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.errorGeneric", {
-          error: err.message
-        }))]
-      });
-    }
+  const resultMessage = await submission.fetchReply().catch(() => null);
+  if (!resultMessage) {
+    testedNodeSessions.delete(token);
+    return;
   }
 
-  // ================================================================
-  // ACTION: REPLACE
-  // ================================================================
-  if (action === "replace") {
-    const idnode = options.getString("idnode")?.trim().toLowerCase();
-    const host = options.getString("host")?.trim();
-    const port = options.getInteger("port");
-    const password = options.getString("password");
-    const secure = options.getBoolean("secure") ?? false;
-    if (!idnode) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.requiredIdnodeReplace"))]
-      });
-    }
-    if (!host || !port || !password) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.requiredFieldsReplace"))]
-      });
-    }
-    const configNodes = [...(client.config.nodes || [])];
-    const nodeIndex = configNodes.findIndex(n => n.id.toLowerCase() === idnode);
-    if (nodeIndex === -1) {
-      const available = configNodes.map(n => `\`${n.id}\``).join(", ");
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_117", {
-          var1: idnode,
-          var2: available
-        }))]
-      });
-    }
-    const oldNode = configNodes[nodeIndex];
+  const collector = resultMessage.createMessageComponentCollector({
+    time: SUBMENU_TIMEOUT,
+    filter: (button) =>
+      button.user.id === submission.user.id &&
+      button.customId === `lava:add-tested:${token}`,
+  });
 
-    // Test node mới trước
-    await interaction.editReply({
-      embeds: [new EmbedBuilder().setColor("#FFAA00").setDescription(t("lavalink.testingBeforeReplace", {
-        host,
-        port,
-        id: oldNode.id
-      }))]
-    });
-    const result = await pingNode(host, port, password, secure);
-    if (!result.success) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_118") + `**Host:** \`${host}:${port}\`\n` + t("lavalink.auto_119", {
-          var1: result.error
-        }) + t("lavalink.auto_120", {
-          var1: oldNode.id
-        }))]
-      });
-    }
-    try {
-      // Xoá player đang chạy trên node cũ
-      const playersOnNode = [...client.manager.players.values()].filter(p => p.node?.id?.toLowerCase() === idnode);
-      for (const player of playersOnNode) {
-        try {
-          const nowPlayingMsg = player.get("nowPlayingMessage");
-          if (nowPlayingMsg) await nowPlayingMsg.delete().catch(() => {});
-          const textChannel = client.channels.cache.get(player.textChannelId);
-          if (textChannel) {
-            await textChannel.send({
-              embeds: [new EmbedBuilder().setColor("#FF8800").setDescription(t("error.serverReplaced")).setTimestamp()]
-            }).catch(() => {});
-          }
-          await player.destroy().catch(() => {});
-        } catch (e) {}
-      }
+  collector.on("collect", async (button) => {
+    collector.stop("added");
+    const saved = testedNodeSessions.get(token);
+    testedNodeSessions.delete(token);
+    if (!saved || saved.userId !== button.user.id) return;
 
-      // Ngắt kết nối node cũ
-      const liveNode = client.manager.nodeManager.nodes.get(oldNode.id);
-      if (liveNode) {
-        try {
-          await liveNode.destroy();
-        } catch (e) {
-          client.manager.nodeManager.nodes.delete(oldNode.id);
-        }
-      }
+    await button.deferUpdate().catch(() => {});
+    const reportProgress = (embed) =>
+      submission.editReply({ embeds: [embed], components: [] }).catch(() => {});
+    const result = await addNode(client, saved.input, reportProgress);
+    await submission
+      .editReply({ embeds: [result], components: [] })
+      .catch(() => {});
+    await refreshMainMenu(client, saved.mainInteraction).catch(() => {});
+  });
 
-      // Cập nhật config — giữ nguyên ID cũ, thay thông số mới
-      const newNodeConfig = {
+  collector.on("end", (_collected, reason) => {
+    testedNodeSessions.delete(token);
+    if (reason === "time")
+      submission.editReply({ components: [] }).catch(() => {});
+  });
+}
+
+async function removeNode(client, nodeId) {
+  if (nodeId.toLowerCase() === "node0") {
+    return buildInfoEmbed(client, "#FF0000", t("lavalink.cannotRemoveNode0"));
+  }
+
+  const nodes = getConfiguredNodes(client);
+  const index = nodes.findIndex(
+    (node) => node.id.toLowerCase() === nodeId.toLowerCase()
+  );
+  if (index === -1) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.nodeNotFound", {
+        id: nodeId,
+        available: nodes.map((node) => `\`${node.id}\``).join(", "),
+      })
+    );
+  }
+
+  const node = nodes[index];
+  const affectedPlayers = await destroyPlayersOnNode(
+    client,
+    node.id,
+    "error.botUpdated"
+  );
+  try {
+    await destroyLiveNode(client, node.id);
+    nodes.splice(index, 1);
+    await client.saveLavalinkNodes(nodes);
+    client.manager.options.nodes = nodes;
+    client.lavalinkNotified?.delete(node.id);
+  } catch (error) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.errorGeneric", { error: error.message })
+    );
+  }
+
+  await notifyLavalinkChange(
+    client,
+    "#FF0000",
+    t("lavalink.removedNotify", {
+      id: node.id,
+      host: node.host,
+      port: node.port,
+      count: nodes.length,
+    })
+  );
+  return buildInfoEmbed(
+    client,
+    "#00FF00",
+    t("lavalink.nodeRemoved", {
+      id: node.id,
+      host: node.host,
+      port: node.port,
+      affected: affectedPlayers,
+      count: nodes.length,
+      max: MAX_NODES,
+    })
+  );
+}
+
+async function replaceNode(client, nodeId, input, reportProgress) {
+  const nodes = getConfiguredNodes(client);
+  const index = nodes.findIndex(
+    (node) => node.id.toLowerCase() === nodeId.toLowerCase()
+  );
+  if (index === -1) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.nodeNotFound", {
+        id: nodeId,
+        available: nodes.map((node) => `\`${node.id}\``).join(", "),
+      })
+    );
+  }
+
+  const oldNode = nodes[index];
+  await reportProgress(
+    buildInfoEmbed(
+      client,
+      "#FFAA00",
+      t("lavalink.testingBeforeReplace", {
+        host: input.host,
+        port: input.port,
         id: oldNode.id,
-        // giữ nguyên ID
-        host,
-        port,
-        authorization: password,
-        retryAmount: 200,
-        retryDelay: 40,
-        secure,
-        requestTimeout: 60000
-      };
-      configNodes[nodeIndex] = newNodeConfig;
-      await client.saveLavalinkNodes(configNodes);
-      client.manager.options.nodes = configNodes;
-
-      // Tạo + kết nối node mới
-      client.manager.nodeManager.createNode(newNodeConfig);
-      await client.manager.nodeManager.connectAll();
-
-      // Reset cờ thông báo
-      if (client.lavalinkNotified) client.lavalinkNotified.delete(oldNode.id);
-      const embed = new EmbedBuilder().setColor("#00FF00").setDescription(t("lavalink.auto_121") + `**ID:** \`${oldNode.id}\`\n` + t("lavalink.auto_122", {
-        var1: oldNode.host,
-        var2: oldNode.port
-      }) + t("lavalink.auto_123", {
-        var1: host,
-        var2: port,
-        var3: secure ? "SSL" : "Non-SSL"
-      }) + `**Latency:** ${result.latency}ms\n` + (playersOnNode.length > 0 ? t("lavalink.auto_124", {
-        var1: playersOnNode.length
-      }) : "")).setTimestamp();
-      await interaction.editReply({
-        embeds: [embed]
-      });
-
-      // Thông báo kênh setlog
-      if (client.sendLavalinkNotification) {
-        client.sendLavalinkNotification(new EmbedBuilder().setColor("#00AAFF").setDescription(t("lavalink.auto_125") + `**ID:** \`${oldNode.id}\`\n` + t("lavalink.auto_126", {
-          var1: oldNode.host,
-          var2: oldNode.port
-        }) + t("lavalink.auto_127", {
-          var1: host,
-          var2: port
-        })).setTimestamp());
-      }
-    } catch (err) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.errorGeneric", {
-          error: err.message
-        }))]
-      });
-    }
+      })
+    )
+  );
+  const test = await pingNode(
+    input.host,
+    input.port,
+    input.password,
+    input.secure
+  );
+  if (!test.success) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.cannotConnectReplace", {
+        host: input.host,
+        port: input.port,
+        error: test.error,
+        id: oldNode.id,
+      })
+    );
   }
 
-  // ================================================================
-  // ACTION: RELOAD
-  // ================================================================
-  if (action === "reload") {
-    client.isLavalinkReloading = true;
+  const affectedPlayers = await destroyPlayersOnNode(
+    client,
+    oldNode.id,
+    "error.serverReplaced"
+  );
+  const newNode = createNodeConfig(oldNode.id, input, isNodeEnabled(oldNode));
+  try {
+    await destroyLiveNode(client, oldNode.id);
+    nodes[index] = newNode;
+    await client.saveLavalinkNodes(nodes);
+    client.manager.options.nodes = nodes;
+    client.manager.nodeManager.createNode(newNode);
+    await client.manager.nodeManager.connectAll();
+    client.lavalinkNotified?.delete(oldNode.id);
+  } catch (error) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.errorGeneric", { error: error.message })
+    );
+  }
+
+  await notifyLavalinkChange(
+    client,
+    "#00AAFF",
+    t("lavalink.replacedNotify", {
+      id: oldNode.id,
+      oldHost: oldNode.host,
+      oldPort: oldNode.port,
+      host: input.host,
+      port: input.port,
+    })
+  );
+  return buildInfoEmbed(
+    client,
+    "#00FF00",
+    t("lavalink.nodeReplaced", {
+      id: oldNode.id,
+      oldHost: oldNode.host,
+      oldPort: oldNode.port,
+      host: input.host,
+      port: input.port,
+      secure: input.secure ? "true" : "false",
+      latency: test.latency,
+      affected: affectedPlayers,
+    })
+  );
+}
+
+function createReloadSnapshots(client, players) {
+  return players.flatMap((player) => {
+    const track = player.queue?.current;
+    if (!player.playing || player.paused || !track) return [];
+
+    const uri = track.info?.uri;
+    const title = track.info?.title;
+    const author = track.info?.author;
+    const fallbackQuery = [title, author].filter(Boolean).join(" - ");
+    const query = typeof uri === "string" && uri.trim() ? uri : fallbackQuery;
+    if (
+      !query ||
+      !player.guildId ||
+      !player.voiceChannelId ||
+      !player.textChannelId
+    )
+      return [];
+
+    return [
+      {
+        guildId: player.guildId,
+        voiceChannelId: player.voiceChannelId,
+        textChannelId: player.textChannelId,
+        query,
+        fallbackQuery: fallbackQuery || null,
+        requester: track.requester || player.get("requester") || client.user,
+      },
+    ];
+  });
+}
+
+async function sendReloadPlayerNotice(client, snapshot, messageKey) {
+  const textChannel = client.channels.cache.get(snapshot.textChannelId);
+  if (!textChannel) return;
+
+  await textChannel
+    .send({
+      embeds: [buildInfoEmbed(client, "#FF8800", t(messageKey)).setTimestamp()],
+    })
+    .catch(() => {});
+}
+
+async function restoreReloadedPlayer(client, snapshot) {
+  const node = await client.getLavalink(client);
+  if (!node) throw new Error(t("common.noLavalink"));
+
+  const player = client.manager.createPlayer({
+    guildId: snapshot.guildId,
+    voiceChannelId: snapshot.voiceChannelId,
+    textChannelId: snapshot.textChannelId,
+    selfDeaf: client.config.serverDeafen,
+    selfMute: false,
+    node: node.id,
+  });
+  if (!player.connected) await player.connect();
+
+  let result = null;
+  const queries = [
+    ...new Set([snapshot.query, snapshot.fallbackQuery].filter(Boolean)),
+  ];
+  for (const query of queries) {
     try {
-      const configPath = path.resolve(__dirname, "..", "..", "config.js");
-      const devConfigPath = path.resolve(__dirname, "..", "..", "dev-config.js");
-      let newConfig;
-      if (fs.existsSync(devConfigPath)) {
-        delete require.cache[require.resolve(devConfigPath)];
-        newConfig = require(devConfigPath);
-      } else {
-        delete require.cache[require.resolve(configPath)];
-        newConfig = require(configPath);
+      const searchResult = await player.search({ query }, snapshot.requester);
+      if (
+        searchResult &&
+        ["track", "search", "playlist"].includes(searchResult.loadType) &&
+        searchResult.tracks?.length
+      ) {
+        result = searchResult;
+        break;
       }
-      const persistedNodes = await client.getPersistedLavalinkNodes();
-      if (persistedNodes !== null) {
-        newConfig = {
-          ...newConfig,
-          nodes: persistedNodes
-        };
-      }
-      const oldNodes = client.config.nodes || [];
-      const newNodes = newConfig.nodes || [];
-      const lavalinkChanged = JSON.stringify(oldNodes) !== JSON.stringify(newNodes);
-      client.config = newConfig;
-      let changeMsg = "";
-      if (lavalinkChanged) {
-        const oldIds = oldNodes.map(n => n.id);
-        const newIds = newNodes.map(n => n.id);
-        const added = newNodes.filter(n => !oldIds.includes(n.id));
-        const removed = oldNodes.filter(n => !newIds.includes(n.id));
-        const kept = newNodes.filter(n => oldIds.includes(n.id));
-        changeMsg = t("lavalink.auto_128");
-        if (added.length) changeMsg += t("lavalink.auto_129", {
-          var1: added.length
-        });
-        if (removed.length) changeMsg += t("lavalink.auto_130", {
-          var1: removed.length
-        });
-        if (kept.length) changeMsg += t("lavalink.auto_131", {
-          var1: kept.length
-        });
-      } else {
-        changeMsg = t("lavalink.auto_132", {
-          var1: newNodes.length
-        });
-      }
-      await interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FFAA00").setDescription(t("lavalink.reloadingConfig", {
-          changes: changeMsg
-        }))]
-      });
-      const activePlayers = [...client.manager.players.values()];
-      try {
-        await client.manager.nodeManager.disconnectAll(true, false);
-      } catch (e) {
-        client.manager.nodeManager.nodes.clear();
-      }
-      client.manager.options.nodes = newConfig.nodes;
-      if (client.lavalinkNotified) client.lavalinkNotified.clear();
-      for (const nodeOpts of newConfig.nodes) {
-        client.manager.nodeManager.createNode(nodeOpts);
-      }
-      const connected = await client.manager.nodeManager.connectAll();
-      if (activePlayers.length > 0) {
-        for (const player of activePlayers) {
-          try {
-            const nowPlayingMsg = player.get("nowPlayingMessage");
-            if (nowPlayingMsg) await nowPlayingMsg.delete().catch(() => {});
-            const textChannel = client.channels.cache.get(player.textChannelId);
-            if (textChannel) {
-              await textChannel.send({
-                embeds: [new EmbedBuilder().setColor("#FF8800").setDescription(t("error.botUpdated")).setTimestamp()]
-              }).catch(() => {});
-            }
-            await player.destroy().catch(() => {});
-          } catch (e) {}
-        }
-      }
-      const succEmbed = new EmbedBuilder().setColor("#00FF00").setDescription(t("lavalink.auto_133", {
-        var1: connected,
-        var2: activePlayers.length > 0 ? `**Dọn dẹp:** \`${activePlayers.length}\` player bị gián đoạn.` : ""
-      })).setTimestamp();
-      await interaction.editReply({
-        embeds: [succEmbed]
-      });
-    } catch (err) {
-      return interaction.editReply({
-        embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("lavalink.auto_136", {
-          var1: err.message
-        }))]
-      });
-    } finally {
-      client.isLavalinkReloading = false;
-    }
+    } catch {}
   }
-});
+
+  if (!result) {
+    await player.destroy().catch(() => {});
+    throw new Error(t("player.searchError"));
+  }
+
+  await player.queue.add(result.tracks[0]);
+  await player.play({ paused: false });
+}
+
+async function reloadNodes(client, reportProgress) {
+  client.isLavalinkReloading = true;
+  try {
+    const configPath = path.resolve(__dirname, "..", "..", "config.js");
+    const devConfigPath = path.resolve(__dirname, "..", "..", "dev-config.js");
+    const sourcePath = fs.existsSync(devConfigPath)
+      ? devConfigPath
+      : configPath;
+    delete require.cache[require.resolve(sourcePath)];
+    let newConfig = require(sourcePath);
+    const persistedNodes = await client.getPersistedLavalinkNodes();
+    if (persistedNodes !== null) {
+      newConfig = {
+        ...newConfig,
+        nodes: persistedNodes,
+      };
+    }
+
+    const oldNodes = client.config.nodes || [];
+    const newNodes = newConfig.nodes || [];
+    const changed = JSON.stringify(oldNodes) !== JSON.stringify(newNodes);
+    const changeText = changed
+      ? t("lavalink.nodesChanged")
+      : t("lavalink.nodesUnchanged", { count: newNodes.length });
+    await reportProgress(
+      buildInfoEmbed(
+        client,
+        "#FFAA00",
+        t("lavalink.reloadingConfig", {
+          changes: changeText,
+        })
+      )
+    );
+
+    const activePlayers = [...client.manager.players.values()];
+    const reloadSnapshots = createReloadSnapshots(client, activePlayers);
+    try {
+      await client.manager.nodeManager.disconnectAll(true, false);
+    } catch {
+      client.manager.nodeManager.nodes.clear();
+    }
+
+    client.config = newConfig;
+    client.manager.options.nodes = newNodes;
+    client.lavalinkNotified?.clear();
+    for (const node of newNodes) {
+      client.manager.nodeManager.createNode(node);
+    }
+    const connected = await client.manager.nodeManager.connectAll();
+
+    for (const player of activePlayers) {
+      try {
+        const nowPlayingMessage = player.get("nowPlayingMessage");
+        if (nowPlayingMessage) await nowPlayingMessage.delete().catch(() => {});
+        await player.destroy().catch(() => {});
+      } catch {}
+    }
+
+    let restoredPlayers = 0;
+    for (const snapshot of reloadSnapshots) {
+      try {
+        await restoreReloadedPlayer(client, snapshot);
+        restoredPlayers += 1;
+        await sendReloadPlayerNotice(client, snapshot, "error.musicRestored");
+      } catch (error) {
+        client.warn(
+          `Could not restore player for guild ${snapshot.guildId}: ${error.message}`
+        );
+        await sendReloadPlayerNotice(
+          client,
+          snapshot,
+          "error.musicRestoreFailed"
+        );
+      }
+    }
+
+    const connectedCount = Array.isArray(connected)
+      ? connected.length
+      : connected;
+    return buildInfoEmbed(
+      client,
+      "#00FF00",
+      t("lavalink.reloadSuccess", {
+        connected: connectedCount,
+        count: activePlayers.length,
+        restored: restoredPlayers,
+        recoverable: reloadSnapshots.length,
+      })
+    );
+  } catch (error) {
+    return buildInfoEmbed(
+      client,
+      "#FF0000",
+      t("lavalink.reloadError", { error: error.message })
+    );
+  } finally {
+    client.isLavalinkReloading = false;
+  }
+}
+
+function buildNodePickerComponents(nodes, action) {
+  return chunk(
+    nodes.map((node) =>
+      new ButtonBuilder()
+        .setCustomId(`lava:pick:${action}:${node.id}`)
+        .setLabel(node.id)
+        .setStyle(
+          action === "remove" ? ButtonStyle.Danger : ButtonStyle.Primary
+        )
+    ),
+    5
+  ).map((buttons) => new ActionRowBuilder().addComponents(buttons));
+}
+
+async function openRemoveConfirmation(client, button, node, mainInteraction) {
+  await button.reply({
+    ephemeral: true,
+    embeds: [
+      buildInfoEmbed(
+        client,
+        "#FFAA00",
+        t("lavalink.removeConfirm", { id: node.id })
+      ),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`lava:confirm-remove:${node.id}`)
+          .setLabel(t("lavalink.removeConfirmButton", { id: node.id }))
+          .setStyle(ButtonStyle.Danger)
+      ),
+    ],
+  });
+
+  const confirmationMessage = await button.fetchReply().catch(() => null);
+  if (!confirmationMessage) return;
+  const collector = confirmationMessage.createMessageComponentCollector({
+    time: SUBMENU_TIMEOUT,
+    filter: (confirmation) =>
+      confirmation.user.id === button.user.id &&
+      confirmation.customId === `lava:confirm-remove:${node.id}`,
+  });
+
+  collector.on("collect", async (confirmation) => {
+    collector.stop("confirmed");
+    await confirmation
+      .update({
+        embeds: [
+          buildInfoEmbed(
+            client,
+            "#FFAA00",
+            t("lavalink.removingNode", { id: node.id })
+          ),
+        ],
+        components: [],
+      })
+      .catch(() => {});
+    const result = await removeNode(client, node.id);
+    await confirmationMessage
+      .edit({ embeds: [result], components: [] })
+      .catch(() => {});
+    await refreshMainMenu(client, mainInteraction).catch(() => {});
+  });
+
+  collector.on("end", (_collected, reason) => {
+    if (reason === "time") button.deleteReply().catch(() => {});
+  });
+}
+
+async function openNodePicker(client, button, action, mainInteraction) {
+  const nodes = getConfiguredNodes(client).filter(
+    (node) => action !== "remove" || node.id.toLowerCase() !== "node0"
+  );
+  if (nodes.length === 0) {
+    return button.reply({
+      embeds: [
+        buildInfoEmbed(client, "#FF0000", t("lavalink.noRemovableNodes")),
+      ],
+      ephemeral: true,
+    });
+  }
+
+  await button.reply({
+    ephemeral: true,
+    embeds: [
+      buildInfoEmbed(
+        client,
+        client.config.embedColor,
+        t(
+          action === "remove"
+            ? "lavalink.selectNodeRemove"
+            : "lavalink.selectNodeReplace"
+        )
+      ),
+    ],
+    components: buildNodePickerComponents(nodes, action),
+  });
+
+  const pickerMessage = await button.fetchReply().catch(() => null);
+  if (!pickerMessage) return;
+  const collector = pickerMessage.createMessageComponentCollector({
+    time: SUBMENU_TIMEOUT,
+    filter: (picker) =>
+      picker.user.id === button.user.id &&
+      picker.customId.startsWith(`lava:pick:${action}:`),
+  });
+
+  collector.on("collect", async (picker) => {
+    const nodeId = picker.customId.split(":")[3];
+    const node = getConfiguredNodes(client).find(
+      (currentNode) => currentNode.id === nodeId
+    );
+    if (!node) {
+      await picker
+        .reply({
+          embeds: [
+            buildInfoEmbed(
+              client,
+              "#FF0000",
+              t("lavalink.nodeNotFound", { id: nodeId, available: "" })
+            ),
+          ],
+          ephemeral: true,
+        })
+        .catch(() => {});
+      return;
+    }
+
+    collector.stop("selected");
+    if (action === "remove") {
+      await openRemoveConfirmation(client, picker, node, mainInteraction);
+    } else {
+      await showNodeInputModal(
+        client,
+        picker,
+        "replace",
+        mainInteraction,
+        node.id
+      );
+    }
+  });
+
+  collector.on("end", (_collected, reason) => {
+    if (reason === "time" || reason === "selected")
+      button.deleteReply().catch(() => {});
+  });
+}
+
+async function showNodeInputModal(
+  client,
+  button,
+  action,
+  mainInteraction,
+  nodeId = null
+) {
+  const modal = new ModalBuilder()
+    .setCustomId(`lava:modal:${action}:${nodeId || "new"}`)
+    .setTitle(
+      t(
+        action === "replace"
+          ? "lavalink.replaceFormTitle"
+          : action === "test"
+          ? "lavalink.testFormTitle"
+          : "lavalink.addFormTitle"
+      )
+    );
+  const input = new TextInputBuilder()
+    .setCustomId("node-input")
+    .setLabel(t("lavalink.nodeFormatLabel"))
+    .setPlaceholder(t("lavalink.nodeFormatPlaceholder"))
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(300)
+    .setRequired(true);
+  modal.addComponents(new ActionRowBuilder().addComponents(input));
+  await button.showModal(modal);
+
+  let submission;
+  try {
+    submission = await button.awaitModalSubmit({
+      time: MODAL_TIMEOUT,
+      filter: (submitted) =>
+        submitted.user.id === button.user.id &&
+        submitted.customId === modal.data.custom_id,
+    });
+  } catch {
+    return;
+  }
+
+  let nodeInput;
+  try {
+    nodeInput = parseNodeInput(
+      submission.fields.getTextInputValue("node-input")
+    );
+  } catch (error) {
+    await submission
+      .reply({
+        embeds: [buildInfoEmbed(client, "#FF0000", error.message)],
+        ephemeral: true,
+      })
+      .catch(() => {});
+    return;
+  }
+
+  await submission.deferReply({ ephemeral: true }).catch(() => {});
+  const reportProgress = (embed) =>
+    submission.editReply({ embeds: [embed], components: [] }).catch(() => {});
+  let result;
+  if (action === "add") {
+    result = await addNode(client, nodeInput, reportProgress);
+  } else if (action === "test") {
+    const testResult = await testNode(client, nodeInput, reportProgress);
+    await submission
+      .editReply({
+        embeds: [testResult.embed],
+        components: [],
+      })
+      .catch(() => {});
+    if (testResult.success) {
+      await offerTestedNodeAdd(client, submission, nodeInput, mainInteraction);
+    }
+    return;
+  } else {
+    result = await replaceNode(client, nodeId, nodeInput, reportProgress);
+  }
+  await submission
+    .editReply({ embeds: [result], components: [] })
+    .catch(() => {});
+  if (action !== "test")
+    await refreshMainMenu(client, mainInteraction).catch(() => {});
+}
+
+async function toggleNode(client, nodeId) {
+  const nodes = getConfiguredNodes(client);
+  const index = nodes.findIndex((node) => node.id === nodeId);
+  if (index === -1)
+    throw new Error(t("lavalink.nodeNotFound", { id: nodeId, available: "" }));
+
+  nodes[index].enabled = !isNodeEnabled(nodes[index]);
+  await client.saveLavalinkNodes(nodes);
+  client.manager.options.nodes = nodes;
+}
+
+const command = new SlashCommand()
+  .setName("lavalink")
+  .setDescription(t("lavalink.auto_79"))
+  .setAdminOnly(true)
+  .setRun((client, interaction) =>
+    client.withGuildLanguage(interaction.guildId, async () => {
+      if (interaction.user.id !== client.config.adminId) {
+        return interaction.reply({
+          embeds: [client.ErrorEmbed(t("lavalink.noPermission"))],
+          ephemeral: true,
+        });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+      const mainMessage = await interaction.editReply({
+        embeds: [buildMainEmbed(client)],
+        components: buildMainComponents(client),
+        fetchReply: true,
+      });
+      const collector = mainMessage.createMessageComponentCollector({
+        filter: (button) => button.user.id === interaction.user.id,
+      });
+
+      collector.on("collect", (button) =>
+        client.withGuildLanguage(interaction.guildId, async () => {
+          const [, type, value] = button.customId.split(":");
+          if (type === "toggle") {
+            await button.deferUpdate().catch(() => {});
+            try {
+              await toggleNode(client, value);
+              await refreshMainMenu(client, interaction);
+            } catch (error) {
+              await button
+                .followUp({
+                  embeds: [
+                    buildInfoEmbed(
+                      client,
+                      "#FF0000",
+                      t("lavalink.errorGeneric", { error: error.message })
+                    ),
+                  ],
+                  ephemeral: true,
+                })
+                .catch(() => {});
+            }
+            return;
+          }
+
+          if (type !== "action") return;
+          if (value === "add" || value === "test") {
+            await showNodeInputModal(client, button, value, interaction);
+            return;
+          }
+          if (value === "remove" || value === "replace") {
+            await openNodePicker(client, button, value, interaction);
+            return;
+          }
+          if (value === "reload") {
+            await button.deferReply({ ephemeral: true }).catch(() => {});
+            const result = await reloadNodes(client, (embed) =>
+              button
+                .editReply({ embeds: [embed], components: [] })
+                .catch(() => {})
+            );
+            await button
+              .editReply({ embeds: [result], components: [] })
+              .catch(() => {});
+            await refreshMainMenu(client, interaction).catch(() => {});
+          }
+        })
+      );
+    })
+  );
+
 module.exports = command;

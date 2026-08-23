@@ -11,6 +11,7 @@ const {
 const {
   refreshNowPlayingPanel
 } = require("../../util/nowPlayingEmbed");
+const getLavalink = require("../../util/getLavalink");
 
 /**
  * Lấy danh sách tất cả node đang connected, shuffle ngẫu nhiên
@@ -18,7 +19,8 @@ const {
  * @returns {import("lavalink-client").LavalinkNode[]}
  */
 function getShuffledNodes(client) {
-  const nodes = [...client.manager.nodeManager.nodes.values()].filter(n => n.connected);
+  const nodes = [...client.manager.nodeManager.nodes.values()]
+    .filter(node => node.connected && getLavalink.isNodeEnabled(client, node));
   for (let i = nodes.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [nodes[i], nodes[j]] = [nodes[j], nodes[i]];

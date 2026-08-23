@@ -170,41 +170,46 @@ async function showTextModal(client, interaction, mode) {
   } catch (_) {}
 }
 
+async function openActivityMenu(client, interaction) {
+  const message = await interaction.reply({
+    embeds: [buildEmbed(client)],
+    components: buildComponents(),
+    ephemeral: true,
+    fetchReply: true
+  });
+
+  const collector = message.createMessageComponentCollector({
+    filter: i => i.user.id === interaction.user.id
+  });
+
+  collector.on("collect", async i => {
+    if (i.customId === "activity_type_select") {
+      await showTextModal(client, i, i.values[0]);
+      return;
+    }
+
+    if (i.customId === "activity_status_select") {
+      const current = getCurrentPresence(client);
+      const presence = buildPresence(current.type, current.text, i.values[0]);
+      await applyPresence(client, presence);
+      await i.update({ embeds: [buildEmbed(client)], components: buildComponents() }).catch(() => {});
+      return;
+    }
+
+    if (i.customId === "activity_clear") {
+      await applyPresence(client, { status: "online", activities: [] });
+      await i.update({ embeds: [buildEmbed(client)], components: buildComponents() }).catch(() => {});
+    }
+  });
+}
+
 const command = new SlashCommand()
   .setName("activity")
   .setDescription(t("activity.auto_1"))
   .setAdminOnly(true)
-  .setRun(async (client, interaction) => {
-    const message = await interaction.reply({
-      embeds: [buildEmbed(client)],
-      components: buildComponents(),
-      ephemeral: true,
-      fetchReply: true
-    });
+  .setRun(openActivityMenu);
 
-    const collector = message.createMessageComponentCollector({
-      filter: i => i.user.id === interaction.user.id
-    });
-
-    collector.on("collect", async i => {
-      if (i.customId === "activity_type_select") {
-        await showTextModal(client, i, i.values[0]);
-        return;
-      }
-
-      if (i.customId === "activity_status_select") {
-        const current = getCurrentPresence(client);
-        const presence = buildPresence(current.type, current.text, i.values[0]);
-        await applyPresence(client, presence);
-        await i.update({ embeds: [buildEmbed(client)], components: buildComponents() }).catch(() => {});
-        return;
-      }
-
-      if (i.customId === "activity_clear") {
-        await applyPresence(client, { status: "online", activities: [] });
-        await i.update({ embeds: [buildEmbed(client)], components: buildComponents() }).catch(() => {});
-      }
-    });
-  });
+command.openMenu = openActivityMenu;
+command.disabled = true;
 
 module.exports = command;

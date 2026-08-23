@@ -6,8 +6,7 @@ const {
   EmbedBuilder
 } = require("discord.js");
 const os = require("os");
-const command = new SlashCommand().setName("stats").setDescription(t("stats.auto_237")).setAdminOnly(true).setRun(async (client, interaction) => {
-  await interaction.deferReply({ ephemeral: true }).catch(_ => {});
+function buildStatsEmbed(client) {
   const osver = os.platform() + " " + os.release();
   const runtime = moment.duration(client.uptime).format("D[d]・H[h]・m[m]・s[s]", {
     trim: "all"
@@ -36,8 +35,16 @@ const command = new SlashCommand().setName("stats").setDescription(t("stats.auto
   }]).setFooter({
     text: `Build: ${gitHash}`
   });
+  return statsEmbed;
+}
+
+const command = new SlashCommand().setName("stats").setDescription(t("stats.auto_237")).setAdminOnly(true).setRun(async (client, interaction) => {
+  await interaction.deferReply({ ephemeral: true }).catch(_ => {});
   return interaction.editReply({
-    embeds: [statsEmbed]
+    embeds: [buildStatsEmbed(client)]
   }).catch(_ => {});
 });
+
+command.getEmbed = buildStatsEmbed;
+command.disabled = true;
 module.exports = command;

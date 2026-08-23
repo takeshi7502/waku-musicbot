@@ -116,11 +116,8 @@ function buildNowPlayingEmbed(client, player, track) {
       name: translateForPlayer(client, player, "player.duration"),
       value: CODE_TICK + totalDuration + CODE_TICK,
       inline: true
-    }, {
-      name: " ",
-      value: "-# " + playbackDetails,
-      inline: false
-    });
+    })
+    .setFooter({ text: playbackDetails });
 
   if (track.info.artworkUrl) embed.setThumbnail(track.info.artworkUrl);
   return embed;

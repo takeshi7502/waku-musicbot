@@ -117,6 +117,8 @@
     "trackStuckTitle": "Song Error!",
     "trackStuckFooter": "Oops! Something went wrong but it's not your fault!",
     "botUpdated": "⚠️ **Bot has been updated!**\nUse `/play` to play music again.",
+    "musicRestored": "⚠️ **Bot has been updated!**\nSorry for the interruption — your music has been resumed.",
+    "musicRestoreFailed": "⚠️ **Bot has been updated!**\nThis track could not be restored. Please use `/play` to play it again.",
     "serverReplaced": "⚠️ **Music server is being replaced!**\nUse `/play` to play music again.",
     "generic": "❌ An error occurred while executing the command."
   },
@@ -346,11 +348,23 @@
   },
   "cmd": {
     "noPermission": "You are not authorized to use this command!",
-    "noHiddenCommands": "No hidden system commands.",
-    "auto_44": "Show hidden system command list",
+    "noHiddenCommands": "No administrator commands are available.",
+    "auto_44": "Open the administrator command menu",
     "auto_45": "Admin command of {var1}",
     "auto_46": "Discord Music Bot Version: v{var1}; Build: {var2}",
-    "auto_47": "Discord Music Bot Version: v{var1}; Build: {var2}"
+    "auto_47": "Discord Music Bot Version: v{var1}; Build: {var2}",
+    "systemGroup": "System",
+    "serverGroup": "Server",
+    "otherGroup": "Other",
+    "commands": {
+      "status": "View bot and Lavalink status",
+      "lavalink": "Manage Lavalink nodes",
+      "reload": "Reload the configuration and commands",
+      "broadcast": "Send an announcement to multiple servers",
+      "setlog": "Set the server join/leave log channel",
+      "guildleave": "Leave a selected server",
+      "cmd": "Open the administrator command menu"
+    }
   },
   "setlang": {
     "auto_1": "Change the bot system language",
@@ -437,7 +451,7 @@
     "reloadingConfig": "♻️ **Reloading Lavalink configuration...**\n{changes}",
     "nodesChanged": "🔄 **Nodes changed:**",
     "nodesUnchanged": "🔄 **No changes.** Reconnecting {count} nodes...",
-    "reloadSuccess": "✅ **Lavalink reload successful!**\n**Connected:** `{connected}` nodes.",
+    "reloadSuccess": "✅ **Lavalink reload successful!**\n**Connected:** `{connected}` nodes.\n**Restored:** `{restored}/{recoverable}` active player(s).",
     "playersInterrupted": "**Cleanup:** `{count}` players interrupted.",
     "reloadError": "❌ Lavalink Reload Error: `{error}`",
     "errorGeneric": "❌ Error: `{error}`",
@@ -504,7 +518,27 @@
     "auto_133": "✅ **Lavalink reload successfully!**\n**Connected:** `{var1}` nodes.\n{var2}",
     "auto_134": "🔄 **Lavalink Has Changed (Reload)**",
     "auto_135": "**Connection:** {var1} node",
-    "auto_136": "❌ Lỗi Reload Lavalink: `{var1}`"
+    "auto_136": "❌ Lỗi Reload Lavalink: `{var1}`",
+    "menuTitle": "Lavalink Nodes",
+    "nodeLine": "{status} {id} | `{host}:{port}` | `{password}` | `{secure}`",
+    "actionAdd": "Add",
+    "actionRemove": "Remove",
+    "actionReplace": "Replace",
+    "actionTest": "Test",
+    "actionReload": "Reload",
+    "addFormTitle": "Add Lavalink node",
+    "testFormTitle": "Test Lavalink node",
+    "replaceFormTitle": "Replace Lavalink node",
+    "nodeFormatLabel": "ip:port:pass:secure",
+    "nodeFormatPlaceholder": "127.0.0.1:3333:password:false",
+    "formatInvalid": "❌ Invalid format. Use: `ip:port:pass:true` or `ip:port:pass:false`.",
+    "selectNodeRemove": "Choose a node to remove.",
+    "selectNodeReplace": "Choose a node to replace.",
+    "noRemovableNodes": "❌ There are no nodes that can be removed.",
+    "removeConfirm": "Are you sure you want to remove node `{id}`?",
+    "removeConfirmButton": "Remove {id}",
+    "removingNode": "Removing node `{id}`...",
+    "notAvailable": "N/A"
   },
   "system": {
     "botStarted": "Bot started...",

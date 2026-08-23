@@ -117,6 +117,8 @@
     "trackStuckTitle": "曲エラー！",
     "trackStuckFooter": "おっと！何か問題が発生しましたが、それはあなたのせいではありません!",
     "botUpdated": "⚠️ **ボットが更新されました!**\n音楽を再度再生するには「/play」を使用します。",
+    "musicRestored": "⚠️ **ボットが更新されました!**\n中断してしまい申し訳ありません。音楽をもう一度再生しました。",
+    "musicRestoreFailed": "⚠️ **ボットが更新されました!**\nこの曲は復元できませんでした。`/play` でもう一度再生してください。",
     "serverReplaced": "⚠️ **音楽サーバーを交換中です!**\n音楽を再度再生するには「/play」を使用します。",
     "generic": "❌ コマンド実行中にエラーが発生しました。"
   },
@@ -346,11 +348,23 @@
   },
   "cmd": {
     "noPermission": "このコマンドを使用する権限がありません。",
-    "noHiddenCommands": "隠しシステムコマンドはありません。",
-    "auto_44": "非表示のシステム コマンド リストを表示する",
+    "noHiddenCommands": "管理コマンドはありません。",
+    "auto_44": "管理コマンドメニューを開く",
     "auto_45": "{var1} の管理コマンド",
     "auto_46": "Discord 音楽ボットのバージョン: v{var1};ビルド: {var2}",
-    "auto_47": "Discord 音楽ボットのバージョン: v{var1};ビルド: {var2}"
+    "auto_47": "Discord 音楽ボットのバージョン: v{var1};ビルド: {var2}",
+    "systemGroup": "システム",
+    "serverGroup": "サーバー",
+    "otherGroup": "その他",
+    "commands": {
+      "status": "ボットとLavalinkの状態を表示",
+      "lavalink": "Lavalinkノードを管理",
+      "reload": "設定とコマンドを再読み込み",
+      "broadcast": "複数のサーバーへお知らせを送信",
+      "setlog": "参加・退出ログのチャンネルを設定",
+      "guildleave": "選択したサーバーから退出",
+      "cmd": "管理コマンドメニューを開く"
+    }
   },
   "setlang": {
     "auto_1": "ボットのシステム言語を変更する",
@@ -437,7 +451,7 @@
     "reloadingConfig": "♻️ **Lavalink 設定をリロード中...**\n{変更}",
     "nodesChanged": "🔄 **ノードが変更されました:**",
     "nodesUnchanged": "🔄 **変更はありません。** {count} 個のノードを再接続しています...",
-    "reloadSuccess": "✅ **Lavalink のリロードが成功しました!**\n**接続済み:** `{connected}` ノード。",
+    "reloadSuccess": "✅ **Lavalink のリロードが成功しました!**\n**接続済み:** `{connected}` ノード。\n**復元済み:** `{restored}/{recoverable}` 再生中のプレイヤー。",
     "playersInterrupted": "**クリーンアップ:** `{count}` 人のプレイヤーが中断しました。",
     "reloadError": "❌ Lavalink リロード エラー: `{error}`",
     "errorGeneric": "❌ エラー: `{error}`",
@@ -504,7 +518,27 @@
     "auto_133": "✅ **Lavalink のリロードが成功しました!**\n**接続済み:** `{var1}` ノード。\n{var2}",
     "auto_134": "🔄 **ラヴァリンクが変更されました (リロード)**",
     "auto_135": "**接続:** {var1} ノード",
-    "auto_136": "❌ Lavalink をリロード: `{var1}`"
+    "auto_136": "❌ Lavalink をリロード: `{var1}`",
+    "menuTitle": "Lavalink ノード",
+    "nodeLine": "{status} {id} | `{host}:{port}` | `{password}` | `{secure}`",
+    "actionAdd": "追加",
+    "actionRemove": "削除",
+    "actionReplace": "置換",
+    "actionTest": "テスト",
+    "actionReload": "再読み込み",
+    "addFormTitle": "Lavalink ノードを追加",
+    "testFormTitle": "Lavalink ノードをテスト",
+    "replaceFormTitle": "Lavalink ノードを置換",
+    "nodeFormatLabel": "ip:port:pass:secure",
+    "nodeFormatPlaceholder": "127.0.0.1:3333:password:false",
+    "formatInvalid": "❌ 形式が正しくありません。`ip:port:pass:true` または `ip:port:pass:false` を使用してください。",
+    "selectNodeRemove": "削除するノードを選択してください。",
+    "selectNodeReplace": "置換するノードを選択してください。",
+    "noRemovableNodes": "❌ 削除できるノードはありません。",
+    "removeConfirm": "ノード `{id}` を削除してもよろしいですか?",
+    "removeConfirmButton": "{id} を削除",
+    "removingNode": "ノード `{id}` を削除中...",
+    "notAvailable": "不明"
   },
   "system": {
     "botStarted": "ボットが起動しました...",

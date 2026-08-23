@@ -51,7 +51,7 @@ function buildHelpEmbed(client, commands) {
       .filter(Boolean);
     if (groupedCommands.length === 0) continue;
 
-    commandLines.push(`**${t(group.titleKey)}**`);
+    commandLines.push(`• **${t(group.titleKey)}**`);
     for (const command of groupedCommands) {
       addedCommands.add(command.name);
       commandLines.push(`\`/${command.name}\` — ${getHelpDescription(command)}`);
@@ -62,7 +62,7 @@ function buildHelpEmbed(client, commands) {
     .filter(command => !addedCommands.has(command.name))
     .sort((left, right) => left.name.localeCompare(right.name));
   if (remainingCommands.length > 0) {
-    commandLines.push(`**${t("help.otherGroup")}**`);
+    commandLines.push(`• **${t("help.otherGroup")}**`);
     for (const command of remainingCommands) {
       commandLines.push(`\`/${command.name}\` — ${getHelpDescription(command)}`);
     }
@@ -71,7 +71,8 @@ function buildHelpEmbed(client, commands) {
   return new EmbedBuilder()
     .setColor(client.config.embedColor)
     .setTitle(t("help.auto_73", { var1: client.user.username }))
-    .setDescription(commandLines.join("\n"));
+    .setDescription(commandLines.join("\n"))
+    .setTimestamp();
 }
 
 function buildHelpButtons(guildId) {

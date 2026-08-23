@@ -1,5 +1,6 @@
 ﻿const { t } = require("../util/i18n");
 const Controller = require("../util/Controller");
+const getLavalink = require("../util/getLavalink");
 
 /**
  *
@@ -78,7 +79,8 @@ module.exports = async (client, interaction) => {
                 }
 
                 // Search using lavalink-client
-                const connectedNodes = [...client.manager.nodeManager.nodes.values()].filter(n => n.connected);
+                const connectedNodes = [...client.manager.nodeManager.nodes.values()]
+                    .filter(node => node.connected && getLavalink.isNodeEnabled(client, node));
                 const node = connectedNodes.length > 0 ? connectedNodes[Math.floor(Math.random() * connectedNodes.length)] : undefined;
                 if (!node) return interaction.respond([]).catch(() => {});
 
