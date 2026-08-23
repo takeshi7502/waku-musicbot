@@ -221,7 +221,30 @@
     "auto_74": "Discord 音楽ボットのバージョン: v{var1};ビルド: {var2}",
     "auto_75": "Discord 音楽ボットのバージョン: v{var1};ビルド: {var2}",
     "page": "ページ {current} / {total}",
-    "close": "閉じる"
+    "close": "閉じる",
+    "languageButton": "言語",
+    "languageMenuTitle": "言語",
+    "languageCurrent": "現在の言語: **{language}**",
+    "musicGroup": "音楽再生",
+    "serverGroup": "サーバー",
+    "otherGroup": "その他",
+    "commands": {
+      "play": "音楽またはリンクを検索して再生",
+      "search": "再生する曲を検索",
+      "nowplaying": "再生中の曲を表示",
+      "seek": "再生位置を移動",
+      "shuffle": "キューをシャッフル",
+      "volume": "音量を調整",
+      "stop": "再生を停止して退出",
+      "summon": "ボットをボイスチャンネルに呼ぶ",
+      "filters": "音声フィルターを切り替え",
+      "setup": "通知チャンネルを設定",
+      "clean": "ボットの最近のメッセージを削除",
+      "help": "コマンドガイドを表示",
+      "about": "ボット情報を表示",
+      "invite": "ボットをサーバーに招待",
+      "ping": "ボットの遅延を表示"
+    }
   },
   "about": {
     "description": "ボットの情報を表示します",
@@ -699,7 +722,15 @@
     "auto_290": "プレーヤー: {var1} |音楽プレーヤーが停止しました。",
     "auto_291": "以前の曲は再生されません。",
     "auto_292": "プレーヤー: {var1} | {var2} 成功したプレイヤー",
-    "auto_293": "プレーヤー: {var1} | {var2} 反復が正常に有効化/無効化されました"
+    "auto_293": "プレーヤー: {var1} | {var2} 反復が正常に有効化/無効化されました",
+    "saveButton": "保存",
+    "autoMenuButton": "自動",
+    "autoMenuTitle": "自動メニュー",
+    "autoMenuDescription": "再生モードをオンまたはオフにします。",
+    "auto247Description": "ボットをボイスチャンネルに残します。",
+    "autoLeaveDescription": "ボイスチャンネルが空になると退出します。",
+    "autoPauseDescription": "ボイスチャンネルが空になると一時停止します。",
+    "autoQueueDescription": "関連曲をキューに自動追加します。"
   },
   "db": {},
   "getChannel": {},

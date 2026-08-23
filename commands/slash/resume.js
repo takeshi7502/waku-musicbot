@@ -38,4 +38,7 @@ const command = new SlashCommand().setName("resume").setDescription(t("resume.au
     embeds: [new EmbedBuilder().setColor(client.config.embedColor).setDescription(t("resume.auto_203"))]
   });
 });
+// The playback panel exposes this control; keep the implementation available
+// without registering a duplicate slash command.
+command.disabled = true;
 module.exports = command;

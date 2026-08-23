@@ -49,4 +49,5 @@ const command = new SlashCommand().setName("remove").setDescription(t("remove.au
     embeds: [removeEmbed]
   });
 });
+command.disabled = true;
 module.exports = command;

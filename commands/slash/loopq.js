@@ -44,4 +44,7 @@ const command = new SlashCommand().setName("loopq").setDescription(t("player.loo
     }))]
   });
 });
+// The playback panel exposes this control; keep the implementation available
+// without registering a duplicate slash command.
+command.disabled = true;
 module.exports = command;

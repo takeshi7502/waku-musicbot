@@ -291,4 +291,5 @@ const command = new SlashCommand().setName("queue").setDescription(t("queue.auto
     });
   }
 });
+command.disabled = true;
 module.exports = command;

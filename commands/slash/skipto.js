@@ -55,4 +55,5 @@ const command = new SlashCommand().setName("skipto").setDescription(t("skipto.au
     });
   }
 });
+command.disabled = true;
 module.exports = command;

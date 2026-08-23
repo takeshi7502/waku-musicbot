@@ -59,4 +59,7 @@ const command = new SlashCommand().setName("save").setDescription(t("save.auto_2
     ephemeral: true
   });
 });
+// The playback panel exposes this control; keep the implementation available
+// without registering a duplicate slash command.
+command.disabled = true;
 module.exports = command;

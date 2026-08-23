@@ -44,4 +44,5 @@ const command = new SlashCommand().setName("move").setDescription(t("move.auto_1
     embeds: [new EmbedBuilder().setColor(client.config.embedColor).setDescription(t("player.moved"))]
   });
 });
+command.disabled = true;
 module.exports = command;

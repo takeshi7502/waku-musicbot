@@ -49,4 +49,7 @@ const command = new SlashCommand().setName("autopause").setDescription(t("autopa
     embeds: [autoPauseEmbed]
   });
 });
+// The playback panel exposes this control; keep the implementation available
+// without registering a duplicate slash command.
+command.disabled = true;
 module.exports = command;

@@ -221,7 +221,30 @@
     "auto_74": "Discord Music Bot Version: v{var1}; Build: {var2}",
     "auto_75": "Discord Music Bot Version: v{var1}; Build: {var2}",
     "page": "Page {current} / {total}",
-    "close": "Close"
+    "close": "Close",
+    "languageButton": "Language",
+    "languageMenuTitle": "Language",
+    "languageCurrent": "Current language: **{language}**",
+    "musicGroup": "Music playback",
+    "serverGroup": "Server",
+    "otherGroup": "Other",
+    "commands": {
+      "play": "Search and play music or a link",
+      "search": "Search for a track to play",
+      "nowplaying": "Show the current track",
+      "seek": "Jump to a timestamp",
+      "shuffle": "Shuffle the queue",
+      "volume": "Adjust the volume",
+      "stop": "Stop music and leave the channel",
+      "summon": "Bring the bot to your voice channel",
+      "filters": "Enable or disable audio filters",
+      "setup": "Set the notification channel",
+      "clean": "Delete recent messages from the bot",
+      "help": "Show this command guide",
+      "about": "Show information about the bot",
+      "invite": "Invite the bot to a server",
+      "ping": "Show the bot latency"
+    }
   },
   "about": {
     "description": "View information about the bot",
@@ -699,7 +722,15 @@
     "auto_290": "Player: {var1} | Music player stopped.",
     "auto_291": "No previous songs are played.",
     "auto_292": "Player: {var1} | {var2} successful player",
-    "auto_293": "Player: {var1} | Successfully enabled/disabled {var2} iteration"
+    "auto_293": "Player: {var1} | Successfully enabled/disabled {var2} iteration",
+    "saveButton": "Save",
+    "autoMenuButton": "Automatic",
+    "autoMenuTitle": "Automatic menu",
+    "autoMenuDescription": "Enable or disable playback modes.",
+    "auto247Description": "Keep the bot in the voice channel.",
+    "autoLeaveDescription": "Leave when the voice channel is empty.",
+    "autoPauseDescription": "Pause when the voice channel is empty.",
+    "autoQueueDescription": "Automatically add related tracks to the queue."
   },
   "db": {},
   "getChannel": {},

@@ -1,4 +1,7 @@
 const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder
 } = require("discord.js");
 const {
@@ -9,8 +12,16 @@ const {
 const {
   buildNowPlayingEmbed,
   markNowPlayingUserAction,
-  queueNowPlayingMessageEdit
+  queueNowPlayingMessageEdit,
+  refreshNowPlayingPanel
 } = require("./nowPlayingEmbed");
+
+const AUTO_SETTINGS = [
+  { key: "twentyFourSeven", configKey: "twentyFourSeven", label: "247", descriptionKey: "Controller.auto247Description" },
+  { key: "autoLeave", configKey: "autoLeave", label: "autoleave", descriptionKey: "Controller.autoLeaveDescription" },
+  { key: "autoPause", configKey: "autoPause", label: "autopause", descriptionKey: "Controller.autoPauseDescription" },
+  { key: "autoQueue", configKey: "autoQueue", label: "autoqueue", descriptionKey: "Controller.autoQueueDescription" }
+];
 
 async function refreshNowPlayingMessage(client, interaction, player, includeEmbed = false) {
   if (!interaction.message) return;
@@ -23,6 +34,82 @@ async function refreshNowPlayingMessage(client, interaction, player, includeEmbe
   }
 
   await queueNowPlayingMessageEdit(player, interaction.message, payload).catch(() => {});
+}
+
+function getAutoSettingEnabled(client, player, setting) {
+  const value = player.get(setting.key);
+  return typeof value === "boolean" ? value : Boolean(client.config[setting.configKey]);
+}
+
+function buildAutoSettingsEmbed(client, guildId) {
+  const settingLines = AUTO_SETTINGS.map(setting =>
+    `\`${setting.label}\` — ${client.translateGuild(guildId, setting.descriptionKey)}`
+  );
+
+  return new EmbedBuilder()
+    .setColor(client.config.embedColor)
+    .setTitle(client.translateGuild(guildId, "Controller.autoMenuTitle"))
+    .setDescription([
+      client.translateGuild(guildId, "Controller.autoMenuDescription"),
+      ...settingLines
+    ].join("\n"));
+}
+
+function buildAutoSettingsComponents(client, guildId, player) {
+  const buttons = AUTO_SETTINGS.map(setting => new ButtonBuilder()
+    .setCustomId(`auto-settings:${guildId}:${setting.key}`)
+    .setLabel(setting.label)
+    .setStyle(getAutoSettingEnabled(client, player, setting) ? ButtonStyle.Success : ButtonStyle.Danger));
+
+  return [new ActionRowBuilder().addComponents(buttons)];
+}
+
+async function openAutoSettingsMenu(client, interaction, player) {
+  const guildId = interaction.guildId;
+  await interaction.reply({
+    ephemeral: true,
+    embeds: [buildAutoSettingsEmbed(client, guildId)],
+    components: buildAutoSettingsComponents(client, guildId, player)
+  });
+
+  const menuMessage = await interaction.fetchReply().catch(() => null);
+  if (!menuMessage) return;
+
+  const collector = menuMessage.createMessageComponentCollector({
+    time: 60_000,
+    filter: menuInteraction => menuInteraction.user.id === interaction.user.id && menuInteraction.customId.startsWith(`auto-settings:${guildId}:`)
+  });
+
+  collector.on("collect", async menuInteraction => {
+    const settingKey = menuInteraction.customId.split(":")[2];
+    const setting = AUTO_SETTINGS.find(item => item.key === settingKey);
+    const activePlayer = client.manager.getPlayer(guildId);
+
+    if (!setting || !activePlayer) {
+      collector.stop();
+      await menuInteraction.deferUpdate().catch(() => {});
+      return;
+    }
+
+    const enabled = !getAutoSettingEnabled(client, activePlayer, setting);
+    activePlayer.set(setting.key, enabled);
+
+    if (setting.key === "autoQueue") {
+      await refreshNowPlayingPanel(client, activePlayer).catch(() => {});
+    } else if (setting.key === "autoLeave" || setting.key === "autoPause") {
+      activePlayer.set("requester", interaction.guild.members.me);
+    }
+
+    await menuInteraction.update({
+      embeds: [buildAutoSettingsEmbed(client, guildId)],
+      components: buildAutoSettingsComponents(client, guildId, activePlayer)
+    }).catch(() => {});
+    collector.resetTimer();
+  });
+
+  collector.on("end", () => {
+    interaction.deleteReply().catch(() => {});
+  });
 }
 
 /**
@@ -54,6 +141,9 @@ module.exports = async (client, interaction) => {
       embeds: [sameEmbed],
       ephemeral: true
     });
+  }
+  if (property === "AutoSettings") {
+    return openAutoSettingsMenu(client, interaction, player);
   }
   if (property === "Stop") {
     markNowPlayingUserAction(player);

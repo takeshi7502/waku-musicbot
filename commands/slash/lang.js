@@ -61,4 +61,5 @@ const command = new SlashCommand()
     });
   });
 
+command.disabled = true;
 module.exports = command;

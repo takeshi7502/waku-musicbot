@@ -221,7 +221,30 @@
     "auto_74": "Phiên Bản Discord Music Bot: v{var1}; Build: {var2}",
     "auto_75": "Phiên Bản Discord Music Bot: v{var1}; Build: {var2}",
     "page": "Trang {current} / {total}",
-    "close": "Đóng"
+    "close": "Đóng",
+    "languageButton": "Ngôn ngữ",
+    "languageMenuTitle": "Ngôn ngữ",
+    "languageCurrent": "Ngôn ngữ hiện tại: **{language}**",
+    "musicGroup": "Phát nhạc",
+    "serverGroup": "Máy chủ",
+    "otherGroup": "Khác",
+    "commands": {
+      "play": "Tìm và phát nhạc hoặc link",
+      "search": "Tìm bài hát để chọn phát",
+      "nowplaying": "Xem bài hát đang phát",
+      "seek": "Chuyển đến mốc thời gian",
+      "shuffle": "Xáo trộn hàng đợi",
+      "volume": "Điều chỉnh âm lượng",
+      "stop": "Dừng nhạc và rời kênh",
+      "summon": "Gọi bot vào kênh thoại",
+      "filters": "Bật hoặc tắt bộ lọc âm thanh",
+      "setup": "Thiết lập kênh thông báo",
+      "clean": "Xoá tin nhắn gần đây của bot",
+      "help": "Xem hướng dẫn các lệnh",
+      "about": "Xem thông tin về bot",
+      "invite": "Mời bot vào máy chủ",
+      "ping": "Xem độ trễ của bot"
+    }
   },
   "about": {
     "description": "Xem thông tin về bot",
@@ -643,7 +666,7 @@
     "auto_248": "Xem trạng thái Bot & Lavalink"
   },
   "stop": {
-    "auto_249": "Dừng lại những gì bot đang phát và rời khỏi kênh thoại\n(Lưu ý: Lệnh này sẽ xóa toàn bộ hàng đợi)",
+    "auto_249": "Dừng lại những gì bot đang phát và rời khỏi kênh thoại.",
     "auto_250": "Tôi không ở trong một kênh thoại.",
     "auto_251": "**👋 | Tạm biệt nha!** (Đã dừng bởi <@{var1}>)"
   },
@@ -699,7 +722,15 @@
     "auto_290": "Người chơi: {var1} | Đã dừng trình phát nhạc.",
     "auto_291": "Không có bài hát trước đó được phát.",
     "auto_292": "Người chơi: {var1} | {var2} người chơi thành công",
-    "auto_293": "Người chơi: {var1} | Đã bật/tắt lặp {var2} thành công"
+    "auto_293": "Người chơi: {var1} | Đã bật/tắt lặp {var2} thành công",
+    "saveButton": "Lưu",
+    "autoMenuButton": "Tự động",
+    "autoMenuTitle": "Menu Tự động",
+    "autoMenuDescription": "Bật hoặc tắt các chế độ của trình phát.",
+    "auto247Description": "Giữ bot ở lại kênh thoại.",
+    "autoLeaveDescription": "Rời kênh khi không còn ai.",
+    "autoPauseDescription": "Tạm dừng khi kênh thoại trống.",
+    "autoQueueDescription": "Tự thêm bài liên quan sau hàng đợi."
   },
   "db": {},
   "getChannel": {},

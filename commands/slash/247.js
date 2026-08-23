@@ -57,6 +57,9 @@ const command = new SlashCommand().setName("247").setDescription(t("247.auto_1")
     embeds: [twentyFourSevenEmbed]
   });
 });
+// The playback panel exposes this control; keep the implementation available
+// without registering a duplicate slash command.
+command.disabled = true;
 module.exports = command;
 // check above message, it is a little bit confusing. and erros are not handled. probably should be fixed.
 // ok use catch ez kom  follow meh ;_;

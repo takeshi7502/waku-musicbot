@@ -44,4 +44,5 @@ const command = new SlashCommand().setName("clear").setDescription(t("clear.auto
     embeds: [clearEmbed]
   });
 });
+command.disabled = true;
 module.exports = command;

@@ -34,7 +34,12 @@ const command = new SlashCommand().setName("reload").setDescription(t("reload.au
       delete require.cache[require.resolve(SlashCommandsDirectory + "/" + file)];
       let cmd = require(SlashCommandsDirectory + "/" + file);
       if (cmd && cmd.run) {
-        client.slashCommands.set(file.split(".")[0].toLowerCase(), cmd);
+        const commandName = file.split(".")[0].toLowerCase();
+        if (cmd.disabled) {
+          client.slashCommands.delete(commandName);
+        } else {
+          client.slashCommands.set(commandName, cmd);
+        }
       }
     });
     const totalCmds = client.slashCommands.size + client.contextCommands.size;

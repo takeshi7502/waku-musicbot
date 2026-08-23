@@ -38,4 +38,5 @@ const command = new SlashCommand().setName("replay").setDescription(t("replay.au
     }))]
   });
 });
+command.disabled = true;
 module.exports = command;

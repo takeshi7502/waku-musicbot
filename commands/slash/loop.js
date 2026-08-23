@@ -44,4 +44,7 @@ const command = new SlashCommand().setName("loop").setDescription(t("loop.auto_1
     }))]
   });
 });
+// The playback panel exposes this control; keep the implementation available
+// without registering a duplicate slash command.
+command.disabled = true;
 module.exports = command;
