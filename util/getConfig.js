@@ -1,15 +1,18 @@
 const { t } = require("./i18n");
 const dotenv = require("dotenv").config();
 
+const DEFAULT_EMBED_COLOR = "#485e8d";
+
 function sanitizeConfig(config) {
   // Discord chỉ chấp nhận hex màu 6 ký tự (#RRGGBB)
   // #RRGGBBAA (8 ký tự) → cắt bỏ 2 ký tự alpha
-  if (config.embedColor && typeof config.embedColor === "string") {
-    if (/^#[0-9a-f]{8}$/i.test(config.embedColor)) {
-      config.embedColor = config.embedColor.slice(0, 7);
-    } else if (!/^#[0-9a-f]{6}$/i.test(config.embedColor)) {
-      config.embedColor = "#5865F2"; // fallback: Discord blurple
-    }
+  const embedColor = typeof config.embedColor === "string" ? config.embedColor.trim() : "";
+  if (/^#[0-9a-f]{8}$/i.test(embedColor)) {
+    config.embedColor = embedColor.slice(0, 7);
+  } else if (/^#[0-9a-f]{6}$/i.test(embedColor)) {
+    config.embedColor = embedColor;
+  } else {
+    config.embedColor = DEFAULT_EMBED_COLOR;
   }
 
   return config;

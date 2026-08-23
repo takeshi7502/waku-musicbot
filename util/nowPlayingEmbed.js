@@ -11,7 +11,20 @@ const SOURCE_ICON_URLS = {
 const SOURCE_NAMES = {
   youtube: "YouTube",
   soundcloud: "SoundCloud",
-  spotify: "Spotify"
+  spotify: "Spotify",
+  applemusic: "Apple Music",
+  deezer: "Deezer",
+  bandcamp: "Bandcamp",
+  twitch: "Twitch"
+};
+const SOURCE_COLORS = {
+  youtube: "#FF0000",
+  soundcloud: "#FF5500",
+  spotify: "#1DB954",
+  applemusic: "#FC3C44",
+  deezer: "#A238FF",
+  bandcamp: "#629AA9",
+  twitch: "#9146FF"
 };
 
 function formatTime(milliseconds) {
@@ -39,12 +52,20 @@ function getTrackSource(track) {
   if (sourceName.includes("youtube") || sourceName === "yt") return "youtube";
   if (sourceName.includes("soundcloud")) return "soundcloud";
   if (sourceName.includes("spotify")) return "spotify";
+  if (sourceName.includes("applemusic") || sourceName.includes("apple music")) return "applemusic";
+  if (sourceName.includes("deezer")) return "deezer";
+  if (sourceName.includes("bandcamp")) return "bandcamp";
+  if (sourceName.includes("twitch")) return "twitch";
 
   try {
     const hostname = new URL(track.info.uri).hostname.toLowerCase();
     if (hostname === "youtu.be" || hostname.endsWith("youtube.com")) return "youtube";
     if (hostname.endsWith("soundcloud.com")) return "soundcloud";
     if (hostname.endsWith("spotify.com")) return "spotify";
+    if (hostname.endsWith("music.apple.com")) return "applemusic";
+    if (hostname.endsWith("deezer.com")) return "deezer";
+    if (hostname.endsWith("bandcamp.com")) return "bandcamp";
+    if (hostname.endsWith("twitch.tv")) return "twitch";
   } catch {}
 
   return null;
@@ -81,9 +102,10 @@ function buildNowPlayingEmbed(client, player, track) {
       ? translateForPlayer(client, player, "player.nowPlayingOn", { platform: SOURCE_NAMES[source] })
       : translateForPlayer(client, player, "player.nowPlaying")
   };
-  if (source) author.iconURL = SOURCE_ICON_URLS[source];
+  if (SOURCE_ICON_URLS[source]) author.iconURL = SOURCE_ICON_URLS[source];
 
   const embed = client.Embed()
+    .setColor(SOURCE_COLORS[source] || client.config.embedColor)
     .setAuthor(author)
     .setDescription(description)
     .addFields({
