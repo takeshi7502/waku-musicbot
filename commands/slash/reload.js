@@ -1,105 +1,315 @@
 const {
-  EmbedBuilder
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
 } = require("discord.js");
-const {
-  t
-} = require("../../util/i18n");
 const SlashCommand = require("../../lib/SlashCommand");
+const { t, reloadLocales, setLanguage } = require("../../util/i18n");
 const fs = require("fs");
 const path = require("path");
-const command = new SlashCommand().setName("reload").setDescription(t("reload.auto_189")).setAdminOnly(true).setRun(async (client, interaction, options) => {
-  if (interaction.user.id !== client.config.adminId) {
-    return interaction.reply({
-      embeds: [new EmbedBuilder().setColor(client.config.embedColor).setDescription(t("cmd.noPermission"))],
-      ephemeral: true
-    });
+const { randomUUID } = require("crypto");
+
+const MENU_TIMEOUT = 5 * 60_000;
+
+function buildEmbed(client, title, description, color = null) {
+  return new EmbedBuilder()
+    .setColor(color || client.config.embedColor)
+    .setTitle(title)
+    .setDescription(description)
+    .setTimestamp();
+}
+
+function buildMainMenu(client, token) {
+  const updateMode = client.getManagedUpdateMode();
+  const isManagedUpdate = updateMode === "managed";
+  const isHeroku = updateMode === "heroku";
+  const isHerokuDeployAvailable = client.isHerokuDeployAvailable();
+  const canRunHardUpdate =
+    isManagedUpdate || (isHeroku && isHerokuDeployAvailable);
+  const description = [
+    t("reload.menuDescription"),
+    "",
+    t("reload.softDescription"),
+    isManagedUpdate
+      ? t("reload.hardDescription")
+      : isHeroku && isHerokuDeployAvailable
+      ? t("reload.herokuDescription")
+      : isHeroku
+      ? t("reload.herokuUnavailableDescription")
+      : t("reload.hardUnavailableDescription"),
+  ].join("\n");
+
+  return {
+    embeds: [buildEmbed(client, t("reload.menuTitle"), description)],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`reload:soft:${token}`)
+          .setLabel(t("reload.softButton"))
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`reload:hard:${token}`)
+          .setLabel(
+            isHeroku
+              ? t("reload.herokuDeployButton")
+              : t("reload.hardButton")
+          )
+          .setStyle(ButtonStyle.Danger)
+          .setDisabled(!canRunHardUpdate)
+      ),
+    ],
+  };
+}
+
+function buildHardUpdateConfirmation(client, token, updateMode) {
+  const isHeroku = updateMode === "heroku";
+  return {
+    embeds: [
+      buildEmbed(
+        client,
+        isHeroku
+          ? t("reload.herokuConfirmTitle")
+          : t("reload.hardConfirmTitle"),
+        isHeroku
+          ? t("reload.herokuConfirmDescription")
+          : t("reload.hardConfirmDescription"),
+        "#FFAA00"
+      ),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`reload:hard-confirm:${token}`)
+          .setLabel(
+            isHeroku
+              ? t("reload.herokuConfirmButton")
+              : t("reload.hardConfirmButton")
+          )
+          .setStyle(ButtonStyle.Danger),
+        new ButtonBuilder()
+          .setCustomId(`reload:cancel:${token}`)
+          .setLabel(t("reload.cancelButton"))
+          .setStyle(ButtonStyle.Secondary)
+      ),
+    ],
+  };
+}
+
+function reloadCommandCollection(
+  client,
+  directory,
+  collection,
+  isContext = false
+) {
+  collection.clear();
+  const files = fs
+    .readdirSync(directory)
+    .filter((file) => file.endsWith(".js"));
+
+  for (const file of files) {
+    const modulePath = path.join(directory, file);
+    delete require.cache[require.resolve(modulePath)];
+    const command = require(modulePath);
+    if (!command?.run || (isContext && !command.command) || command.disabled) {
+      continue;
+    }
+    collection.set(file.slice(0, -3).toLowerCase(), command);
   }
-  await interaction.deferReply({
-    ephemeral: true
-  });
-  try {
-    let reloadLog = [];
+}
 
-    // ======== BƯỚC 1: TẢI LẠI TẤT CẢ LỆNH ========
-    let ContextCommandsDirectory = path.join(__dirname, "..", "context");
-    fs.readdirSync(ContextCommandsDirectory).forEach(file => {
-      delete require.cache[require.resolve(ContextCommandsDirectory + "/" + file)];
-      let cmd = require(ContextCommandsDirectory + "/" + file);
-      if (cmd.command && cmd.run) {
-        client.contextCommands.set(file.split(".")[0].toLowerCase(), cmd);
-      }
-    });
-    let SlashCommandsDirectory = path.join(__dirname, "..", "slash");
-    fs.readdirSync(SlashCommandsDirectory).forEach(file => {
-      delete require.cache[require.resolve(SlashCommandsDirectory + "/" + file)];
-      let cmd = require(SlashCommandsDirectory + "/" + file);
-      if (cmd && cmd.run) {
-        const commandName = file.split(".")[0].toLowerCase();
-        if (cmd.disabled) {
-          client.slashCommands.delete(commandName);
-        } else {
-          client.slashCommands.set(commandName, cmd);
-        }
-      }
-    });
-    const totalCmds = client.slashCommands.size + client.contextCommands.size;
-    reloadLog.push(t("reload.auto_190", {
-      var1: totalCmds
-    }));
+async function reloadRuntimeConfig(client) {
+  const root = path.resolve(__dirname, "..", "..");
+  for (const candidate of [
+    path.join(root, "dev-config.js"),
+    path.join(root, "config.js"),
+    path.join(root, "config.heroku.js"),
+  ]) {
+    if (!fs.existsSync(candidate)) continue;
+    delete require.cache[require.resolve(candidate)];
+  }
 
-    // ======== BƯỚC 2: TẢI LẠI CONFIG ========
-    const configPath = path.resolve(__dirname, "..", "..", "config.js");
-    // Nếu có dev-config thì ưu tiên
-    const devConfigPath = path.resolve(__dirname, "..", "..", "dev-config.js");
-    let newConfig;
-    if (fs.existsSync(devConfigPath)) {
-      delete require.cache[require.resolve(devConfigPath)];
-      newConfig = require(devConfigPath);
-    } else {
-      delete require.cache[require.resolve(configPath)];
-      newConfig = require(configPath);
+  const configLoaderPath = require.resolve("../../util/getConfig");
+  delete require.cache[configLoaderPath];
+  const getConfig = require("../../util/getConfig");
+  client.config = await getConfig();
+  setLanguage(client.config.language);
+  await client.applyPersistedRuntimeConfig();
+  if (client.user) await client.user.setPresence(client.config.presence);
+}
+
+async function runSoftReload(client, user) {
+  const changes = [];
+  reloadLocales();
+  changes.push(t("reload.softLocales"));
+
+  reloadCommandCollection(
+    client,
+    path.join(__dirname, "..", "context"),
+    client.contextCommands,
+    true
+  );
+  reloadCommandCollection(
+    client,
+    path.join(__dirname, "..", "slash"),
+    client.slashCommands
+  );
+  changes.push(
+    t("reload.softCommands", {
+      count: client.slashCommands.size + client.contextCommands.size,
+    })
+  );
+
+  await reloadRuntimeConfig(client);
+  changes.push(t("reload.softConfig"));
+
+  client.log(
+    t("reload.reloadLog", {
+      user: user.tag,
+      log: changes.join(" | "),
+    })
+  );
+  return changes;
+}
+
+const command = new SlashCommand()
+  .setName("reload")
+  .setDescription(t("reload.commandDescription"))
+  .setAdminOnly(true)
+  .setRun(async (client, interaction) => {
+    if (interaction.user.id !== client.config.adminId) {
+      return interaction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(client.config.embedColor)
+            .setDescription(t("cmd.noPermission")),
+        ],
+        ephemeral: true,
+      });
     }
 
-    // Xoá cache getConfig để lấy version mới nhất (quan trọng sau git pull)
-    const getConfigPath = require.resolve("../../util/getConfig");
-    delete require.cache[getConfigPath];
-    const { sanitizeConfig } = require("../../util/getConfig");
-
-    // Cập nhật config mới vào client (đã sanitize màu embed)
-    client.config = sanitizeConfig(newConfig);
-    await client.applyPersistedRuntimeConfig();
-    reloadLog.push(t("reload.auto_191"));
-
-    // ======== BƯỚC 4: TẢI LẠI EVENTS ========
-    const eventsDir = path.join(__dirname, "..", "..", "events");
-    fs.readdirSync(eventsDir).forEach(file => {
-      if (!file.endsWith(".js")) return;
-      const eventPath = path.join(eventsDir, file);
-      delete require.cache[require.resolve(eventPath)];
+    const token = randomUUID();
+    await interaction.reply({
+      ephemeral: true,
+      ...buildMainMenu(client, token),
     });
-    reloadLog.push(t("reload.auto_192"));
+    const menuMessage = await interaction.fetchReply().catch(() => null);
+    if (!menuMessage) return;
 
-    // ======== KẾT QUẢ ========
-    client.log(t("reload.auto_193", {
-      var1: interaction.user.tag,
-      var2: reloadLog.join(" | ")
-    }));
-    return interaction.editReply({
-      embeds: [new EmbedBuilder().setColor("#00FF00").setAuthor({
-        name: t("reload.auto_194")
-      }).setDescription(reloadLog.join("\n")).setFooter({
-        text: t("reload.auto_195", {
-          var1: interaction.user.username
-        })
-      }).setTimestamp()]
+    const collector = menuMessage.createMessageComponentCollector({
+      time: MENU_TIMEOUT,
+      filter: (button) =>
+        button.user.id === interaction.user.id &&
+        button.customId.endsWith(token),
     });
-  } catch (err) {
-    console.error("Reload error:", err);
-    return interaction.editReply({
-      embeds: [new EmbedBuilder().setColor("#FF0000").setDescription(t("reload.auto_196", {
-        var1: err.message
-      }))]
+
+    collector.on("collect", async (button) => {
+      const action = button.customId.split(":")[1];
+
+      if (action === "soft") {
+        collector.stop("used");
+        await button.deferUpdate().catch(() => {});
+        try {
+          const changes = await runSoftReload(client, interaction.user);
+          await interaction.editReply({
+            embeds: [
+              buildEmbed(
+                client,
+                t("reload.softCompleteTitle"),
+                changes.join("\n"),
+                "#00FF00"
+              ),
+            ],
+            components: [],
+          });
+        } catch (error) {
+          await interaction.editReply({
+            embeds: [
+              buildEmbed(
+                client,
+                t("reload.softFailedTitle"),
+                t("reload.error", { error: error.message }),
+                "#FF0000"
+              ),
+            ],
+            components: [],
+          });
+        }
+        return;
+      }
+
+      if (action === "hard") {
+        return button.update(
+          buildHardUpdateConfirmation(
+            client,
+            token,
+            client.getManagedUpdateMode()
+          )
+        );
+      }
+
+      if (action === "cancel") {
+        return button.update(buildMainMenu(client, token));
+      }
+
+      if (action !== "hard-confirm") return;
+
+      collector.stop("queued");
+      await button.deferUpdate().catch(() => {});
+      try {
+        const journal = await client.queueManagedBotUpdate({
+          user: interaction.user,
+          channelId: interaction.channelId,
+          guildId: interaction.guildId,
+        });
+        await interaction.editReply({
+          embeds: [
+            buildEmbed(
+              client,
+              journal.mode === "heroku"
+                ? t("reload.herokuQueuedTitle")
+                : t("reload.hardQueuedTitle"),
+              journal.mode === "heroku"
+                ? t("reload.herokuQueuedDescription", {
+                    count: journal.snapshots.length,
+                  })
+                : t("reload.hardQueuedDescription", {
+                    count: journal.snapshots.length,
+                  }),
+              "#FFAA00"
+            ),
+          ],
+          components: [],
+        });
+      } catch (error) {
+        const key =
+          error.code === "MANAGED_UPDATE_UNAVAILABLE"
+            ? "reload.hardUnavailable"
+            : error.code === "HEROKU_DEPLOY_UNAVAILABLE"
+            ? "reload.herokuUnavailable"
+            : error.code === "MANAGED_UPDATE_IN_PROGRESS"
+            ? "reload.hardInProgress"
+            : "reload.error";
+        await interaction.editReply({
+          embeds: [
+            buildEmbed(
+              client,
+              client.getManagedUpdateMode() === "heroku"
+                ? t("reload.herokuFailedTitle")
+                : t("reload.hardFailedTitle"),
+              t(key, { error: error.message }),
+              "#FF0000"
+            ),
+          ],
+          components: [],
+        });
+      }
     });
-  }
-});
+
+    collector.on("end", (_collected, reason) => {
+      if (["used", "queued"].includes(reason)) return;
+      interaction.editReply({ components: [] }).catch(() => {});
+    });
+  });
+
 module.exports = command;

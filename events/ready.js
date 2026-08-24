@@ -24,5 +24,10 @@ module.exports = async client => {
     }
   }
   client.user.setPresence(client.config.presence);
+  // A managed Docker update writes a durable player journal before the
+  // container is recreated. Resume it only after Lavalink has been initialised.
+  client.resumeManagedBotUpdate().catch(error => {
+    client.warn(`Managed update recovery failed: ${error.message}`);
+  });
   client.log(t("ready.auto_283") + client.user.tag);
 };

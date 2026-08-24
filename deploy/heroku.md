@@ -36,6 +36,25 @@ Thêm các giá trị sau trong **Settings → Config Vars**:
 | `LAVALINK_SECURE` | `false` |
 | `BOT_LANGUAGE` | `vi` (không bắt buộc) |
 
+Để nút **Cập nhật Heroku** trong `/reload` tự lấy code mới và tạo release,
+thêm hai Config Var này một lần:
+
+| Name | Value |
+| --- | --- |
+| `HEROKU_APP_NAME` | Tên chính xác của app Heroku, ví dụ `waku-musicbot` |
+| `HEROKU_API_KEY` | API key của tài khoản Heroku có quyền với app này |
+
+Hai biến dưới đây là tùy chọn; mặc định đã là repository và nhánh hiện tại:
+
+| Name | Default |
+| --- | --- |
+| `HEROKU_REPOSITORY` | `takeshi7502/waku-musicbot` |
+| `HEROKU_DEPLOY_BRANCH` | `v5` |
+
+`HEROKU_API_KEY` có quyền tạo build/release cho app, nên chỉ đặt trong Config
+Vars, không gửi cho ai và tuyệt đối không commit vào Git. Repository nguồn
+phải public để Heroku tải source trực tiếp.
+
 Không tạo hoặc upload `config.js` lên Heroku. `config.heroku.js` đọc các Config
 Vars này và bắt buộc dùng MongoDB thay vì database JSON tạm.
 
@@ -43,17 +62,13 @@ Vars này và bắt buộc dùng MongoDB thay vì database JSON tạm.
 
 1. Deploy branch `v5` trong Heroku Dashboard.
 2. Trong **Resources**, để `web = 0` và `worker = 1`.
-3. Trong **More → Run console**, ô nhập lệnh đã có sẵn tiền tố `heroku run`.
-   Chỉ nhập:
-
-   ```bash
-   npm run deploy
-   ```
-
-   Lệnh này đăng ký các slash command global và command admin vào
-   `BOT_ADMIN_GUILD_ID` nếu đã đặt.
-
-4. Để lệnh hiện ngay trong một server cụ thể, deploy lại source có
+3. Heroku tự chạy `npm run deploy` ở release phase sau mỗi build, nên không
+   cần mở **Run console** để đăng ký slash command nữa.
+4. Sau khi đã deploy commit chứa tính năng này và đặt hai Config Var Heroku ở
+   trên, dùng `/reload` → **Cập nhật Heroku**. Bot sẽ lưu bài đang phát vào
+   MongoDB, yêu cầu Heroku tải commit mới nhất của nhánh `v5`, build/release,
+   chạy `npm run deploy`, rồi khởi động worker mới và mở lại bài đã lưu.
+5. Nếu muốn lệnh hiện ngay trong một server cụ thể, deploy lại source có
    `DEPLOY_GUILD_ID` rồi chạy trong Run Console:
 
    ```bash

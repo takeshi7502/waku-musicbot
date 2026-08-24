@@ -42,6 +42,14 @@ module.exports = {
   clientId: required("DISCORD_CLIENT_ID"),
   clientSecret: process.env.DISCORD_CLIENT_SECRET || "",
   mongoURI: required("MONGODB_URI"),
+  // Optional self-deploy credentials for /reload on Heroku. They are kept in
+  // Config Vars only, never in config.js or Git.
+  herokuDeploy: {
+    appName: process.env.HEROKU_APP_NAME || "",
+    apiKey: process.env.HEROKU_API_KEY || "",
+    repository: process.env.HEROKU_REPOSITORY || "takeshi7502/waku-musicbot",
+    branch: process.env.HEROKU_DEPLOY_BRANCH || "v5",
+  },
   nodes: [
     {
       id: process.env.LAVALINK_NODE_ID || "node0",

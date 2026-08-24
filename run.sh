@@ -385,11 +385,11 @@ deploy_commands() {
     return
   }
   echo "Đang đăng ký slash command lên Discord..."
-  compose run --rm --no-deps discordmusicbot npm run deploy
+  compose run --rm --no-deps waku-musicbot npm run deploy
 }
 
 start_stack() {
-  compose up -d --remove-orphans discordmusicbot
+  compose up -d --remove-orphans waku-musicbot
 }
 
 rebuild_bot() {
@@ -401,7 +401,7 @@ rebuild_bot() {
   ensure_public_status_config
   mkdir -p data
   echo "Đang build lại image bot..."
-  compose build --pull discordmusicbot
+  compose build --pull waku-musicbot
   start_stack
   echo "Bot đã được build và khởi động."
 }
@@ -427,7 +427,7 @@ change_lavalink() {
 
 restart_bot() {
   require_docker || return
-  compose restart discordmusicbot
+  compose restart waku-musicbot
   echo "Đã khởi động lại bot."
 }
 
@@ -439,7 +439,7 @@ stop_bot() {
 
 show_logs() {
   require_docker || return
-  compose logs -f --tail=100 discordmusicbot
+  compose logs -f --tail=100 waku-musicbot
 }
 
 show_guide() {
@@ -477,7 +477,7 @@ setup_web_api() {
 
   update_public_status_config true 127.0.0.1 3000 "$domain"
 
-  compose up -d --force-recreate discordmusicbot
+  compose up -d --force-recreate waku-musicbot
   echo "API web đã bật: https://$domain/api/public-status"
   echo "Nginx sẽ tiếp tục phục vụ HTTPS và chuyển tiếp request vào bot."
 }
@@ -486,7 +486,7 @@ stop_web_api() {
   require_docker || return
   read_public_status_values || return
   update_public_status_config false "$CURRENT_PUBLIC_STATUS_HOST" "$CURRENT_PUBLIC_STATUS_PORT" "$CURRENT_PUBLIC_STATUS_DOMAIN"
-  compose up -d --force-recreate discordmusicbot
+  compose up -d --force-recreate waku-musicbot
   echo "Đã tắt API web. Bot nhạc và Nginx vẫn chạy."
 }
 

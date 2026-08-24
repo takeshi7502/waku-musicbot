@@ -1,16 +1,10 @@
 services:
-  discordmusicbot:
-    container_name: discordmusicbot
+  waku-musicbot:
+    container_name: waku-musicbot
     build: .
-    image: discordmusicbot:local
+    image: waku-musicbot:local
     network_mode: host
     restart: always
     volumes:
       - ./config.js:/usr/src/app/config.js:ro
-      - ./commands:/usr/src/app/commands
-      - ./lib:/usr/src/app/lib
-      - ./events:/usr/src/app/events
-      - ./util:/usr/src/app/util
-      - ./api:/usr/src/app/api
-      - ./index.js:/usr/src/app/index.js
       - ./data:/usr/src/app/data

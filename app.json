@@ -57,6 +57,24 @@
     "BOT_LANGUAGE": {
       "description": "Default bot language",
       "value": "vi"
+    },
+    "HEROKU_APP_NAME": {
+      "description": "Heroku app name. Required only to let /reload deploy the latest GitHub branch automatically.",
+      "required": false
+    },
+    "HEROKU_API_KEY": {
+      "description": "Heroku Account API key. Required only to let /reload create an automatic build and release.",
+      "required": false
+    },
+    "HEROKU_REPOSITORY": {
+      "description": "Public GitHub repository in owner/repo format for automatic /reload deployment.",
+      "value": "takeshi7502/waku-musicbot",
+      "required": false
+    },
+    "HEROKU_DEPLOY_BRANCH": {
+      "description": "Git branch that /reload deploys automatically.",
+      "value": "v5",
+      "required": false
     }
   }
 }

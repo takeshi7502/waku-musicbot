@@ -1,0 +1,11 @@
+services:
+  waku-musicbot:
+    # Development-only override. Production intentionally runs code baked into
+    # the image so a git pull cannot change a live process before its rebuild.
+    volumes:
+      - ./commands:/usr/src/app/commands
+      - ./lib:/usr/src/app/lib
+      - ./events:/usr/src/app/events
+      - ./util:/usr/src/app/util
+      - ./api:/usr/src/app/api
+      - ./index.js:/usr/src/app/index.js

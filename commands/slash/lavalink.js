@@ -12,6 +12,11 @@ const { t } = require("../../util/i18n");
 const fs = require("fs");
 const path = require("path");
 const { randomUUID } = require("crypto");
+const {
+  createPlayerRecoverySnapshots,
+  restoreRecoveredPlayer,
+  sendRecoveryNotice,
+} = require("../../util/playerRecovery");
 
 const MAX_NODES = 10;
 const SUBMENU_TIMEOUT = 60_000;
@@ -614,89 +619,6 @@ async function replaceNode(client, nodeId, input, reportProgress) {
   );
 }
 
-function createReloadSnapshots(client, players) {
-  return players.flatMap((player) => {
-    const track = player.queue?.current;
-    if (!player.playing || player.paused || !track) return [];
-
-    const uri = track.info?.uri;
-    const title = track.info?.title;
-    const author = track.info?.author;
-    const fallbackQuery = [title, author].filter(Boolean).join(" - ");
-    const query = typeof uri === "string" && uri.trim() ? uri : fallbackQuery;
-    if (
-      !query ||
-      !player.guildId ||
-      !player.voiceChannelId ||
-      !player.textChannelId
-    )
-      return [];
-
-    return [
-      {
-        guildId: player.guildId,
-        voiceChannelId: player.voiceChannelId,
-        textChannelId: player.textChannelId,
-        query,
-        fallbackQuery: fallbackQuery || null,
-        requester: track.requester || player.get("requester") || client.user,
-      },
-    ];
-  });
-}
-
-async function sendReloadPlayerNotice(client, snapshot, messageKey) {
-  const textChannel = client.channels.cache.get(snapshot.textChannelId);
-  if (!textChannel) return;
-
-  await textChannel
-    .send({
-      embeds: [buildInfoEmbed(client, "#FF8800", t(messageKey)).setTimestamp()],
-    })
-    .catch(() => {});
-}
-
-async function restoreReloadedPlayer(client, snapshot) {
-  const node = await client.getLavalink(client);
-  if (!node) throw new Error(t("common.noLavalink"));
-
-  const player = client.manager.createPlayer({
-    guildId: snapshot.guildId,
-    voiceChannelId: snapshot.voiceChannelId,
-    textChannelId: snapshot.textChannelId,
-    selfDeaf: client.config.serverDeafen,
-    selfMute: false,
-    node: node.id,
-  });
-  if (!player.connected) await player.connect();
-
-  let result = null;
-  const queries = [
-    ...new Set([snapshot.query, snapshot.fallbackQuery].filter(Boolean)),
-  ];
-  for (const query of queries) {
-    try {
-      const searchResult = await player.search({ query }, snapshot.requester);
-      if (
-        searchResult &&
-        ["track", "search", "playlist"].includes(searchResult.loadType) &&
-        searchResult.tracks?.length
-      ) {
-        result = searchResult;
-        break;
-      }
-    } catch {}
-  }
-
-  if (!result) {
-    await player.destroy().catch(() => {});
-    throw new Error(t("player.searchError"));
-  }
-
-  await player.queue.add(result.tracks[0]);
-  await player.play({ paused: false });
-}
-
 async function reloadNodes(client, reportProgress) {
   client.isLavalinkReloading = true;
   try {
@@ -732,7 +654,7 @@ async function reloadNodes(client, reportProgress) {
     );
 
     const activePlayers = [...client.manager.players.values()];
-    const reloadSnapshots = createReloadSnapshots(client, activePlayers);
+    const reloadSnapshots = createPlayerRecoverySnapshots(client, activePlayers);
     try {
       await client.manager.nodeManager.disconnectAll(true, false);
     } catch {
@@ -758,14 +680,14 @@ async function reloadNodes(client, reportProgress) {
     let restoredPlayers = 0;
     for (const snapshot of reloadSnapshots) {
       try {
-        await restoreReloadedPlayer(client, snapshot);
+        await restoreRecoveredPlayer(client, snapshot);
         restoredPlayers += 1;
-        await sendReloadPlayerNotice(client, snapshot, "error.musicRestored");
+        await sendRecoveryNotice(client, snapshot, "error.musicRestored");
       } catch (error) {
         client.warn(
           `Could not restore player for guild ${snapshot.guildId}: ${error.message}`
         );
-        await sendReloadPlayerNotice(
+        await sendRecoveryNotice(
           client,
           snapshot,
           "error.musicRestoreFailed"

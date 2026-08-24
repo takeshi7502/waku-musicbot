@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for a requested Waku Music Bot update
+
+[Path]
+PathChanged=@BOT_REPO_DIR@/data/managed-update-request.json
+Unit=waku-musicbot-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply a requested Waku Music Bot update
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@BOT_USER@
+WorkingDirectory=@BOT_REPO_DIR@
+ExecStart=/usr/local/sbin/waku-musicbot-update @BOT_REPO_DIR@ @BOT_BRANCH@
+TimeoutStartSec=20min
+NoNewPrivileges=true
+PrivateTmp=true
