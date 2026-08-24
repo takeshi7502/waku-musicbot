@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Minimal Lavalink setup helper for Debian/Ubuntu VPSes.
-# It intentionally installs only Java. Put Lavalink.jar and required local
-# plugin JARs (notably youtube-source) beside this script before running it.
+# It intentionally installs only Java. Lavalink and the local plugins are
+# downloaded from their trusted releases; no Docker, Node.js or cipher host is used.
 
 set -Eeuo pipefail
 
@@ -18,6 +18,11 @@ SERVICE_NAME="lavalink"
 TEMPLATE_FILE="$SCRIPT_DIR/example.application.yml"
 CONFIG_FILE="$SCRIPT_DIR/application.yml"
 JAR_FILE="$SCRIPT_DIR/Lavalink.jar"
+PLUGIN_DIR="$SCRIPT_DIR/plugins"
+LAVALINK_RELEASE_API="https://api.github.com/repos/lavalink-devs/Lavalink/releases/latest"
+YOUTUBE_RELEASE_API="https://api.github.com/repos/lavalink-devs/youtube-source/releases/latest"
+STATUS_PLUGIN_VERSION="1.1.0"
+STATUS_PLUGIN_URL="https://github.com/takeshi7502/waku-musicbot/releases/download/status-plugin-v${STATUS_PLUGIN_VERSION}/takeshi-status-plugin-${STATUS_PLUGIN_VERSION}.jar"
 
 header() {
   echo -e "${CYAN}===================================================${NC}"
@@ -77,6 +82,86 @@ ensure_java() {
   ok "Java $major is ready"
 }
 
+fetch_url() {
+  local url="$1"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 2 "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- "$url"
+  else
+    die "curl or wget is required to download Lavalink. Install one manually, then run this script again."
+  fi
+}
+
+download_file() {
+  local url="$1" destination="$2" temporary_file
+  temporary_file="${destination}.download.$$"
+  rm -f "$temporary_file"
+
+  info "Downloading $(basename "$destination")..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL --retry 2 --progress-bar "$url" -o "$temporary_file"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q --show-progress -O "$temporary_file" "$url"
+  else
+    die "curl or wget is required to download Lavalink. Install one manually, then run this script again."
+  fi
+
+  [ -s "$temporary_file" ] || die "Downloaded file is empty: $(basename "$destination")"
+  mv "$temporary_file" "$destination"
+  ok "Downloaded $(basename "$destination")"
+}
+
+latest_release_asset_url() {
+  local api_url="$1" asset_name="$2" release_json url
+  release_json="$(fetch_url "$api_url")" || die "Could not read the latest release metadata."
+  url="$(printf '%s\n' "$release_json" | sed -nE "s|^[[:space:]]*\"browser_download_url\":[[:space:]]*\"([^\"]*/${asset_name})\"[,]?$|\\1|p" | head -n 1)"
+  [ -n "$url" ] || die "Could not find the required release asset: $asset_name"
+  printf '%s\n' "$url"
+}
+
+latest_youtube_plugin_url() {
+  local release_json url
+  release_json="$(fetch_url "$YOUTUBE_RELEASE_API")" || die "Could not read YouTube plugin release metadata."
+  url="$(printf '%s\n' "$release_json" \
+    | sed -nE 's|^[[:space:]]*"browser_download_url":[[:space:]]*"([^"]+)"[,]?$|\1|p' \
+    | grep -E '/youtube-plugin-[^/]+\.jar$' \
+    | grep -Ev -- '-(sources|javadoc)\.jar$' \
+    | head -n 1)"
+  [ -n "$url" ] || die "Could not find the latest youtube-plugin JAR."
+  printf '%s\n' "$url"
+}
+
+download_missing_runtime() {
+  local url
+
+  header "Download Lavalink and plugins"
+  mkdir -p "$PLUGIN_DIR"
+
+  if [ -s "$JAR_FILE" ]; then
+    ok "Lavalink.jar already exists; keeping the current version"
+  else
+    url="$(latest_release_asset_url "$LAVALINK_RELEASE_API" 'Lavalink\.jar')"
+    download_file "$url" "$JAR_FILE"
+  fi
+
+  if compgen -G "$PLUGIN_DIR/youtube-plugin-*.jar" >/dev/null; then
+    ok "youtube-source plugin already exists; keeping the current version"
+  else
+    url="$(latest_youtube_plugin_url)"
+    download_file "$url" "$PLUGIN_DIR/$(basename "$url")"
+  fi
+
+  if compgen -G "$PLUGIN_DIR/takeshi-status-plugin-*.jar" >/dev/null; then
+    ok "Status plugin already exists; keeping the current version"
+  else
+    download_file "$STATUS_PLUGIN_URL" "$PLUGIN_DIR/takeshi-status-plugin-${STATUS_PLUGIN_VERSION}.jar"
+  fi
+
+  info "The remaining plugins declared under lavalink.plugins are downloaded automatically by Lavalink on first start."
+}
+
 validate_port() {
   [[ "$1" =~ ^[0-9]{1,5}$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
@@ -94,8 +179,8 @@ check_runtime_files() {
   check_template
   [ -s "$JAR_FILE" ] || die "Missing Lavalink.jar. Upload it to $SCRIPT_DIR, then run this script again."
 
-  if ! compgen -G "$SCRIPT_DIR/plugins/youtube-plugin-*.jar" >/dev/null; then
-    warn "No local youtube-source JAR found in plugins/. YouTube will not work until it is added."
+  if ! compgen -G "$PLUGIN_DIR/youtube-plugin-*.jar" >/dev/null; then
+    die "Missing youtube-source plugin. Run the setup script again to download it."
   fi
 }
 
@@ -187,6 +272,7 @@ EOF
 main() {
   header "Lavalink VPS setup"
   ensure_java
+  download_missing_runtime
   check_template
   configure_application
 
