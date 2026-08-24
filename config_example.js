@@ -1,12 +1,11 @@
 module.exports = {
 	language: "vi", //- Ngôn ngữ (vi, en, ja,...) | Language setting
-	helpCmdPerPage: 10, //- Number of commands per page of help command
 	lyricsMaxResults: 5, //- Number of results for lyrics command (Do not touch this value if you don't know what you are doing)
 	adminId: "UserId", //- Replace UserId with the Discord ID of the admin of the bot
 	adminGuildId: "ServerID", //- ID Server trụ sở chính của Admin (Lệnh Admin chỉ hiện ở đây)
+	superSkillChannelId: "", //- Optional voice channel for the admin-only voice fallback
 	token: process.env.token || "YOUR_TOKEN_HERE", //- Bot's Token
 	clientId: process.env.clientId || "YOUR_CLIENT_ID", //- ID of the bot
-	clientSecret: process.env.clientSecret || "YOUR_CLIENT_SECRET", //- Client Secret of the bot
 	mongoURI: "", // MongoDB Atlas URI. Để trống thì bot dùng data/db.json cũ.
 	serverDeafen: true, //- If you want bot to stay deafened
 	defaultVolume: 50, //- Sets the default volume of the bot, You can change this number anywhere from 1 to 100
@@ -30,6 +29,7 @@ module.exports = {
 			retryAmount: 200, //- The amount of times to retry connecting to the node if connection got dropped.
 			retryDelay: 40, //- Delay between reconnect attempts if connection is lost.
 			secure: false, //- Can be either true or false. Only use true if ssl is enabled!
+			requestTimeout: 60000, //- Timeout for Lavalink HTTP requests, in milliseconds.
 		},
 	],
 	embedColor: "#485e8d", //- Embed colour (#RRGGBB). Leave blank to use #485e8d.
@@ -50,10 +50,5 @@ module.exports = {
 		host: "127.0.0.1",
 		port: 3000,
 		domain: "status.example.com",
-	},
-	// ====== WEB DASHBOARD ======
-	port: process.env.PORT || 3000, //- Port cho web dashboard
-	website: process.env.WEBSITE || "http://localhost:3000", //- URL website (đổi thành URL thật nếu deploy)
-	cookieSecret: process.env.COOKIE_SECRET || "YOUR_SECRET_KEY", //- Secret key cho session cookie
-	scopes: ["identify", "guilds"], //- Discord OAuth2 scopes
+	}
 };
