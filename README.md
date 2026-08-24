@@ -26,17 +26,19 @@ git clone --branch lavalink --single-branch https://github.com/takeshi7502/waku-
 cd lavalink
 ```
 
-Đặt `Lavalink.jar` của Lavalink v4 vào thư mục hiện tại, sau đó tạo cấu hình
-riêng từ mẫu:
+Đặt `Lavalink.jar` của Lavalink v4 và JAR `youtube-plugin-*.jar` tương thích
+vào thư mục hiện tại (`plugins/`). Sau đó chạy trình thiết lập gọn:
 
 ```bash
-cp example.application.yml application.yml
-nano application.yml
-chmod 600 application.yml
+chmod +x run.sh
+./run.sh
 ```
 
-Luôn thay mật khẩu Lavalink, refresh token OAuth/poToken và Spotify credentials
-bằng dữ liệu của bạn. Không commit `application.yml`.
+Script chỉ kiểm tra/cài Java khi thiếu, rồi hỏi port và mật khẩu để tạo
+`application.yml` từ `example.application.yml`. Cuối cùng chọn chạy test hoặc
+cài systemd. Không tự cài remote cipher, Docker, Node.js, IPv6 route planner,
+hay tải JAR/plugin. Luôn thay refresh token OAuth và Spotify credentials bằng
+dữ liệu của bạn. Không commit `application.yml`.
 
 ### Plugin cần dùng
 

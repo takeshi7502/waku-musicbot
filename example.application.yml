@@ -2,9 +2,9 @@
 # Do not commit application.yml.
 server:
   port: 3333
-  # Use 127.0.0.1 when the bot and Lavalink share a host. For a remote bot,
-  # change this to 0.0.0.0 and restrict TCP 3333 in the firewall.
-  address: 127.0.0.1
+  # The VPS setup script asks only for port and password. This public bind lets
+  # a bot on another host connect; restrict TCP 3333 to the bot's IP in firewall.
+  address: 0.0.0.0
 
 lavalink:
   server:
@@ -69,7 +69,7 @@ plugins:
         videoLoading: false
         playlistLoading: false
     remoteCipher:
-      # Optional remote cipher service. Leave this section out if unused.
+      # Uses the shared remote cipher endpoint; no local yt-cipher service is needed.
       url: "https://cipher.kikkia.dev/"
       userAgent: "your-lavalink-node-name"
   lavasrc:
