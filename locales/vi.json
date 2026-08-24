@@ -761,6 +761,7 @@
     "autoMenuButton": "Tự động",
     "autoMenuTitle": "Menu Tự động",
     "autoMenuDescription": "Bật hoặc tắt các chế độ của trình phát.",
+    "autoMenuSaveError": "❌ Không thể lưu cài đặt tự động lúc này. Vui lòng thử lại sau.",
     "auto247Description": "Giữ bot ở lại kênh thoại.",
     "autoLeaveDescription": "Rời kênh khi không còn ai.",
     "autoPauseDescription": "Tạm dừng khi kênh thoại trống.",

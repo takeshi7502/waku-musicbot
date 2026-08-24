@@ -15,6 +15,7 @@ const {
   queueNowPlayingMessageEdit,
   refreshNowPlayingPanel
 } = require("./nowPlayingEmbed");
+const { reconcileAutoLeave } = require("./autoVoiceLeave");
 
 const AUTO_SETTINGS = [
   { key: "twentyFourSeven", configKey: "twentyFourSeven", label: "247", descriptionKey: "Controller.auto247Description" },
@@ -66,6 +67,7 @@ function buildAutoSettingsComponents(client, guildId, player) {
 
 async function openAutoSettingsMenu(client, interaction, player) {
   const guildId = interaction.guildId;
+  await client.applyGuildAutoSettingsToPlayer(player).catch(() => {});
   await interaction.reply({
     ephemeral: true,
     embeds: [buildAutoSettingsEmbed(client, guildId)],
@@ -92,12 +94,46 @@ async function openAutoSettingsMenu(client, interaction, player) {
     }
 
     const enabled = !getAutoSettingEnabled(client, activePlayer, setting);
+    const previousValue = getAutoSettingEnabled(client, activePlayer, setting);
+    activePlayer.set("autoSettingsDirty", true);
     activePlayer.set(setting.key, enabled);
+
+    try {
+      await client.setGuildAutoSetting(guildId, setting.key, enabled);
+    } catch {
+      activePlayer.set(setting.key, previousValue);
+      return menuInteraction.reply({
+        embeds: [
+          new EmbedBuilder()
+            .setColor("#FF0000")
+            .setDescription(
+              client.translateGuild(guildId, "Controller.autoMenuSaveError")
+            ),
+        ],
+        ephemeral: true,
+      });
+    }
 
     if (setting.key === "autoQueue") {
       await refreshNowPlayingPanel(client, activePlayer).catch(() => {});
     } else if (setting.key === "autoLeave" || setting.key === "autoPause") {
       activePlayer.set("requester", interaction.guild.members.me);
+    }
+
+    // A queue-end timer belongs to the non-24/7 behaviour.  Do not let a
+    // timer created before this change disconnect the bot after 24/7 is on.
+    if (setting.key === "twentyFourSeven" && enabled) {
+      const disconnectTimer = activePlayer.get("disconnectTimer");
+      if (disconnectTimer) clearTimeout(disconnectTimer);
+      activePlayer.set("disconnectTimer", null);
+    }
+
+    if (
+      setting.key === "twentyFourSeven" ||
+      setting.key === "autoLeave" ||
+      setting.key === "autoPause"
+    ) {
+      reconcileAutoLeave(client, activePlayer);
     }
 
     await menuInteraction.update({
@@ -192,6 +228,7 @@ module.exports = async (client, interaction) => {
     } else {
       markNowPlayingUserAction(player);
       await interaction.deferUpdate().catch(() => {});
+      player.set("pausedByAutoPause", false);
       if (player.paused) {
         player.resume();
       } else {

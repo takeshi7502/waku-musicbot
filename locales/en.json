@@ -761,6 +761,7 @@
     "autoMenuButton": "Automatic",
     "autoMenuTitle": "Automatic menu",
     "autoMenuDescription": "Enable or disable playback modes.",
+    "autoMenuSaveError": "❌ Unable to save the automatic settings right now. Please try again later.",
     "auto247Description": "Keep the bot in the voice channel.",
     "autoLeaveDescription": "Leave when the voice channel is empty.",
     "autoPauseDescription": "Pause when the voice channel is empty.",

@@ -761,6 +761,7 @@
     "autoMenuButton": "自動",
     "autoMenuTitle": "自動メニュー",
     "autoMenuDescription": "再生モードをオンまたはオフにします。",
+    "autoMenuSaveError": "❌ 現在、自動設定を保存できません。後でもう一度お試しください。",
     "auto247Description": "ボットをボイスチャンネルに残します。",
     "autoLeaveDescription": "ボイスチャンネルが空になると退出します。",
     "autoPauseDescription": "ボイスチャンネルが空になると一時停止します。",

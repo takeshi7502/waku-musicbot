@@ -1,221 +1,143 @@
+const { EmbedBuilder } = require("discord.js");
+const { t } = require("../util/i18n");
 const {
-  EmbedBuilder
-} = require("discord.js");
-const {
-  t
-} = require("../util/i18n");
+  clearEmptyChannelLeaveTimer,
+  getAutoSetting,
+  getHumanMemberCount,
+  reconcileAutoLeave,
+} = require("../util/autoVoiceLeave");
 
-// Helper: xoá tin nhắn trình phát khi bot ngắt kết nối
-async function deleteNowPlayingMsg(client, player) {
-  const nowPlayingMsg = player.get("nowPlayingMessage");
-  if (nowPlayingMsg && !client.isMessageDeleted(nowPlayingMsg)) {
-    await nowPlayingMsg.delete().catch(() => {});
-    client.markMessageAsDeleted(nowPlayingMsg);
+async function deleteMessage(client, message) {
+  if (!message || client.isMessageDeleted?.(message)) return;
+  await message.delete().catch(() => {});
+  client.markMessageAsDeleted?.(message);
+}
+
+async function sendAutoPauseMessage(client, player) {
+  const textChannel = client.channels.cache.get(player.textChannelId);
+  if (!textChannel) return;
+
+  const pausedMessage = await textChannel
+    .send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(client.config.embedColor)
+          .setTitle(t("voiceStateUpdate.auto_286"))
+          .setFooter({ text: t("voiceStateUpdate.auto_287") }),
+      ],
+    })
+    .catch(() => null);
+  if (pausedMessage) player.set("pausedMessage", pausedMessage);
+  await deleteMessage(client, player.get("resumeMessage"));
+}
+
+async function sendAutoResumeMessage(client, player) {
+  const textChannel = client.channels.cache.get(player.textChannelId);
+  const track = player.queue?.current;
+  if (!textChannel || !track) return;
+
+  const resumeMessage = await textChannel
+    .send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(client.config.embedColor)
+          .setTitle(t("voiceStateUpdate.auto_284"))
+          .setDescription(
+            t("voice.currentlyPlaying", {
+              title: track.info.title,
+              url: track.info.uri,
+            })
+          )
+          .setFooter({ text: t("voiceStateUpdate.auto_285") }),
+      ],
+    })
+    .catch(() => null);
+  if (resumeMessage) {
+    player.set("resumeMessage", resumeMessage);
+    setTimeout(() => deleteMessage(client, resumeMessage), 5000);
   }
-  player.set("nowPlayingMessage", null);
+  await deleteMessage(client, player.get("pausedMessage"));
 }
 
 /**
- *
- * @param {import("../lib/DiscordMusicBot")} client
- * @param {import("discord.js").VoiceState} oldState
- * @param {import("discord.js").VoiceState} newState
- * @returns {Promise<void>}
+ * Keeps auto-pause and auto-leave independent:
+ * - autoPause controls pause/resume only.
+ * - autoLeave, or disabled 24/7, controls whether an empty channel gets a leave timer.
  */
 module.exports = async (client, oldState, newState) => {
   const guildId = newState.guild.id;
   return client.withGuildLanguage(guildId, async () => {
-  // get guild and player
-  const player = client.manager.getPlayer(guildId);
+    const player = client.manager.getPlayer(guildId);
+    if (!player || !player.connected) return;
 
-  // check if the bot is active (playing, paused or empty does not matter (return otherwise)
-  if (!player || !player.connected) {
-    return;
-  }
-
-  // preprocess the data
-  const stateChange = {};
-  // get the state change
-  if (oldState.channel === null && newState.channel !== null) {
-    stateChange.type = "JOIN";
-  }
-  if (oldState.channel !== null && newState.channel === null) {
-    stateChange.type = "LEAVE";
-  }
-  if (oldState.channel !== null && newState.channel !== null) {
-    stateChange.type = "MOVE";
-  }
-  if (oldState.channel === null && newState.channel === null) {
-    return;
-  } // you never know, right
-  if (newState.serverMute == true && oldState.serverMute == false && newState.id === client.config.clientId) {
-    return player.pause();
-  }
-  if (newState.serverMute == false && oldState.serverMute == true && newState.id === client.config.clientId) {
-    return player.resume();
-  }
-  // move check first as it changes type
-  if (stateChange.type === "MOVE") {
-    if (oldState.channel.id === player.voiceChannelId) {
-      stateChange.type = "LEAVE";
+    if (
+      newState.id === client.config.clientId &&
+      newState.serverMute === true &&
+      oldState.serverMute === false
+    ) {
+      player.set("pausedByAutoPause", false);
+      return player.pause();
     }
-    if (newState.channel.id === player.voiceChannelId) {
-      stateChange.type = "JOIN";
+    if (
+      newState.id === client.config.clientId &&
+      newState.serverMute === false &&
+      oldState.serverMute === true
+    ) {
+      player.set("pausedByAutoPause", false);
+      return player.resume();
     }
-  }
-  // double triggered on purpose for MOVE events
-  if (stateChange.type === "JOIN") {
-    stateChange.channel = newState.channel;
-  }
-  if (stateChange.type === "LEAVE") {
-    stateChange.channel = oldState.channel;
-  }
 
-  // check if the bot's voice channel is involved (return otherwise)
-  if (!stateChange.channel || stateChange.channel.id !== player.voiceChannelId) {
-    return;
-  }
-  player.prevMembers = player.members;
-  player.members = stateChange.channel.members.filter(member => !member.user.bot).size;
-  switch (stateChange.type) {
-    case "JOIN":
-      if (player.get("autoPause") === true) {
-        var members = stateChange.channel.members.filter(member => !member.user.bot).size;
-        if (members === 1 && player.paused && members !== player.prevMembers) {
-          player.resume();
-          let playerResumed = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_284")).setDescription(t("voice.currentlyPlaying", {
-            title: player.queue.current.info.title,
-            url: player.queue.current.info.uri
-          })).setFooter({
-            text: t("voiceStateUpdate.auto_285")
-          });
-          let resumeMessage = await client.channels.cache.get(player.textChannelId).send({
-            embeds: [playerResumed]
-          });
-          player.set("resumeMessage", resumeMessage);
-
-          // Delete previous paused message
-          const pausedMsg = player.get("pausedMessage");
-          if (pausedMsg && !client.isMessageDeleted(pausedMsg)) {
-            pausedMsg.delete().catch(() => {});
-            client.markMessageAsDeleted(pausedMsg);
-          }
-          setTimeout(() => {
-            if (!client.isMessageDeleted(resumeMessage)) {
-              resumeMessage.delete().catch(() => {});
-              client.markMessageAsDeleted(resumeMessage);
-            }
-          }, 5000);
-        }
+    let type = null;
+    let channel = null;
+    if (oldState.channel === null && newState.channel !== null) {
+      type = "JOIN";
+      channel = newState.channel;
+    } else if (oldState.channel !== null && newState.channel === null) {
+      type = "LEAVE";
+      channel = oldState.channel;
+    } else if (oldState.channel !== null && newState.channel !== null) {
+      if (oldState.channel.id === player.voiceChannelId) {
+        type = "LEAVE";
+        channel = oldState.channel;
       }
-      break;
-    case "LEAVE":
-      var members = stateChange.channel.members.filter(member => !member.user.bot).size;
-      const twentyFourSeven = player.get("twentyFourSeven");
-      if (player.get("autoPause") === true && player.get("autoLeave") === false) {
-        if (members === 0 && !player.paused && player.playing) {
-          player.pause();
-          let playerPaused = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_286")).setFooter({
-            text: t("voiceStateUpdate.auto_287")
-          });
-          let pausedMessage = await client.channels.cache.get(player.textChannelId).send({
-            embeds: [playerPaused]
-          });
-          player.set("pausedMessage", pausedMessage);
-
-          // Delete previous resume message
-          const resumeMsg = player.get("resumeMessage");
-          if (resumeMsg && !client.isMessageDeleted(resumeMsg)) {
-            resumeMsg.delete().catch(() => {});
-            client.markMessageAsDeleted(resumeMsg);
-          }
-
-          // Sau disconnectTime, nếu vẫn không có ai thì ngắt kết nối
-          setTimeout(async () => {
-            var currentMembers = stateChange.channel.members.filter(m => !m.user.bot).size;
-            if (currentMembers === 0 && player.connected) {
-              let leftEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-                name: t("voice.disconnected")
-              }).setFooter({
-                text: t("voice.disconnectedNoMembers")
-              }).setTimestamp();
-              await deleteNowPlayingMsg(client, player);
-              let Disconnected = await client.channels.cache.get(player.textChannelId)?.send({ embeds: [leftEmbed] }).catch(() => null);
-              if (Disconnected) setTimeout(() => Disconnected.delete().catch(() => {}), 5000);
-              const pm = player.get("pausedMessage");
-              if (pm && !client.isMessageDeleted(pm)) pm.delete().catch(() => {});
-              player.queue.tracks.splice(0);
-              player.destroy();
-              player.set("autoQueue", false);
-            }
-          }, client.config.disconnectTime);
-        }
-      } else if (player.get("autoLeave") === false && player.get("autoPause") === false) {
-        // autoLeave: false, autoPause: false → không pause, nhưng vẫn ngắt sau disconnectTime
-        if (members === 0) {
-          setTimeout(async () => {
-            var currentMembers = stateChange.channel.members.filter(m => !m.user.bot).size;
-            if (currentMembers === 0 && player.connected) {
-              let leftEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-                name: t("voice.disconnected")
-              }).setFooter({
-                text: t("voice.disconnectedNoMembers")
-              }).setTimestamp();
-              await deleteNowPlayingMsg(client, player);
-              let Disconnected = await client.channels.cache.get(player.textChannelId)?.send({ embeds: [leftEmbed] }).catch(() => null);
-              if (Disconnected) setTimeout(() => Disconnected.delete().catch(() => {}), 5000);
-              player.queue.tracks.splice(0);
-              player.destroy();
-              player.set("autoQueue", false);
-            }
-          }, client.config.disconnectTime);
-        }
-      } else if (player.get("autoLeave") === true && player.get("autoPause") === false) {
-        if (members === 0 && !player.paused && player.playing && twentyFourSeven) {
-          player.pause();
-          let playerPaused = new EmbedBuilder().setColor(client.config.embedColor).setTitle(t("voiceStateUpdate.auto_288")).setFooter({
-            text: t("voiceStateUpdate.auto_289")
-          });
-          let pausedMessage = await client.channels.cache.get(player.textChannelId).send({
-            embeds: [playerPaused]
-          });
-          player.set("pausedMessage", pausedMessage);
-          setTimeout(async () => {
-            var members = stateChange.channel.members.filter(member => !member.user.bot).size;
-            if (members === 0 && player.connected) {
-              let leftEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-                name: t("voice.disconnected")
-              }).setFooter({
-                text: t("voice.disconnectedNoMembers")
-              }).setTimestamp();
-              await deleteNowPlayingMsg(client, player);
-              let Disconnected = await client.channels.cache.get(player.textChannelId).send({
-                embeds: [leftEmbed]
-              });
-              setTimeout(() => Disconnected.delete().catch(() => {}), 5000);
-              pausedMessage.delete().catch(() => {});
-              player.queue.tracks.splice(0);
-              player.destroy();
-              player.set("autoQueue", false);
-            }
-          }, client.config.disconnectTime);
-        } else {
-          if (members === 0 && player.connected) {
-            let leftEmbed = new EmbedBuilder().setColor(client.config.embedColor).setAuthor({
-              name: t("voice.disconnected")
-            }).setFooter({
-              text: t("voice.disconnectedNoMembers")
-            }).setTimestamp();
-            await deleteNowPlayingMsg(client, player);
-            let Disconnected = await client.channels.cache.get(player.textChannelId).send({
-              embeds: [leftEmbed]
-            });
-            setTimeout(() => Disconnected.delete().catch(() => {}), 5000);
-            player.destroy();
-          }
-        }
+      if (newState.channel.id === player.voiceChannelId) {
+        type = "JOIN";
+        channel = newState.channel;
       }
-      break;
-  }
+    }
+
+    if (!type || !channel || channel.id !== player.voiceChannelId) return;
+
+    player.prevMembers = player.members;
+    player.members = getHumanMemberCount(channel);
+
+    if (type === "JOIN") {
+      clearEmptyChannelLeaveTimer(player);
+      if (
+        player.members > 0 &&
+        getAutoSetting(client, player, "autoPause") &&
+        player.paused &&
+        player.get("pausedByAutoPause")
+      ) {
+        await player.resume();
+        player.set("pausedByAutoPause", false);
+        await sendAutoResumeMessage(client, player);
+      }
+      return;
+    }
+
+    if (player.members > 0) return;
+
+    if (
+      getAutoSetting(client, player, "autoPause") &&
+      player.playing &&
+      !player.paused
+    ) {
+      await player.pause();
+      player.set("pausedByAutoPause", true);
+      await sendAutoPauseMessage(client, player);
+    }
+
+    reconcileAutoLeave(client, player);
   });
 };
