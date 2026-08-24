@@ -4,11 +4,11 @@ server:
   port: 3333
   # Use 127.0.0.1 when the bot and Lavalink share a host. For a remote bot,
   # change this to 0.0.0.0 and restrict TCP 3333 in the firewall.
-  address: 127.0.0.1
+  address: 0.0.0.0
 
 lavalink:
   server:
-    password: "replace-with-a-long-lavalink-password"
+    password: "password"
     sources:
       # A compatible youtube-source plugin in ./plugins owns YouTube requests.
       youtube: false
@@ -25,16 +25,16 @@ lavalink:
   plugins:
     - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
       repository: "https://maven.lavalink.dev/releases"
-    - dependency: "com.github.topi314.lavasearch:lavasearch-plugin:1.0.0"
-      repository: "https://maven.lavalink.dev/releases"
-    - dependency: "com.dunctebot:skybot-lavalink-plugin:1.7.0"
-      repository: "https://maven.lavalink.dev/releases"
-    - dependency: "com.github.devoxin:lavadspx-plugin:0.0.5"
-      repository: "https://jitpack.io"
-    - dependency: "com.github.topi314.lavalyrics:lavalyrics-plugin:1.1.0"
-      repository: "https://maven.lavalink.dev/releases"
-    - dependency: "me.duncte123:java-lyrics-plugin:1.6.6"
-      repository: "https://maven.lavalink.dev/releases"
+    # - dependency: "com.github.topi314.lavasearch:lavasearch-plugin:1.0.0"
+    #   repository: "https://maven.lavalink.dev/releases"
+    # - dependency: "com.dunctebot:skybot-lavalink-plugin:1.7.0"
+    #   repository: "https://maven.lavalink.dev/releases"
+    # - dependency: "com.github.devoxin:lavadspx-plugin:0.0.5"
+    #   repository: "https://jitpack.io"
+    # - dependency: "com.github.topi314.lavalyrics:lavalyrics-plugin:1.1.0"
+    #   repository: "https://maven.lavalink.dev/releases"
+    # - dependency: "me.duncte123:java-lyrics-plugin:1.6.6"
+    #   repository: "https://maven.lavalink.dev/releases"
 
 plugins:
   lyrics:
@@ -57,10 +57,10 @@ plugins:
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
     clients:
-      - ANDROID_VR
-      - WEBEMBEDDED
-      - WEB
       - TV
+      - WEBEMBEDDED
+      - ANDROID_VR
+      - WEB
     clientOptions:
       ANDROID_VR:
         playback: false
@@ -71,7 +71,7 @@ plugins:
     remoteCipher:
       # Optional remote cipher service. Leave this section out if unused.
       url: "https://cipher.kikkia.dev/"
-      userAgent: "your-lavalink-node-name"
+      userAgent: "Lavalink"
   lavasrc:
     providers:
       - 'ytsearch:"%ISRC%"'
@@ -84,8 +84,8 @@ plugins:
       youtube: true
       lrcLib: true
     spotify:
-      clientId: ""
-      clientSecret: ""
+      clientId: "client_id"
+      clientSecret: "client_secret"
       resolveArtistsInSearch: true
       albumLoadLimit: 2
       countryCode: "US"
