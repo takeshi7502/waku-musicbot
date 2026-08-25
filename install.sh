@@ -28,7 +28,9 @@ fetch_file() {
 }
 
 install_file_if_missing() {
-  local filename="$1" destination="$INSTALL_DIR/$filename"
+  local filename destination
+  filename="$1"
+  destination="$INSTALL_DIR/$filename"
 
   if [ -f "$destination" ]; then
     info "Keeping existing $filename"
