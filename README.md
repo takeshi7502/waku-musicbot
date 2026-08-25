@@ -24,14 +24,14 @@ Yêu cầu: Linux, Java 21 và Node.js 18 trở lên.
 Không cần clone repository. Trên VPS mới, chạy một lệnh sau:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/takeshi7502/waku-musicbot/lavalink/install.sh | bash
+curl -fsSL -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/takeshi7502/waku-musicbot/contents/install.sh?ref=lavalink' | bash
 ```
 
 Lệnh tạo thư mục `~/lavalink`, tải `run.sh` cùng `example.application.yml`, sau đó
 mở luôn trình thiết lập. Muốn dùng thư mục khác:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/takeshi7502/waku-musicbot/lavalink/install.sh | sudo env LAVALINK_DIR=/opt/lavalink bash
+curl -fsSL -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/takeshi7502/waku-musicbot/contents/install.sh?ref=lavalink' | sudo env LAVALINK_DIR=/opt/lavalink bash
 ```
 
 Nếu vẫn muốn clone toàn bộ nhánh (ví dụ để dùng status dashboard), có thể dùng:
