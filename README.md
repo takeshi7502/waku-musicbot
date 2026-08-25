@@ -21,20 +21,28 @@ Dashboard chỉ nhận metadata công khai của tối đa 50 bài gần nhất.
 
 Yêu cầu: Linux, Java 21 và Node.js 18 trở lên.
 
+Không cần clone repository. Trên VPS mới, chạy một lệnh sau:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/takeshi7502/waku-musicbot/lavalink/install.sh | bash
+```
+
+Lệnh tạo thư mục `~/lavalink`, tải `run.sh` cùng `example.application.yml`, sau đó
+mở luôn trình thiết lập. Muốn dùng thư mục khác:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/takeshi7502/waku-musicbot/lavalink/install.sh | sudo env LAVALINK_DIR=/opt/lavalink bash
+```
+
+Nếu vẫn muốn clone toàn bộ nhánh (ví dụ để dùng status dashboard), có thể dùng:
+
 ```bash
 git clone --branch lavalink --single-branch https://github.com/takeshi7502/waku-musicbot.git lavalink
-cd lavalink
+cd lavalink && ./run.sh
 ```
 
-Chạy trình thiết lập gọn:
-
-```bash
-chmod +x run.sh
-./run.sh
-```
-
-Script chỉ kiểm tra/cài Java khi thiếu, rồi tải `Lavalink.jar`, YouTube Source
-và Status Plugin từ release. Những plugin còn lại trong `lavalink.plugins` sẽ
+Script chỉ kiểm tra/cài Java khi thiếu, rồi tải `Lavalink.jar` và YouTube Source
+từ release. Những plugin còn lại trong `lavalink.plugins` sẽ
 được Lavalink tải tự động khi khởi động. Tiếp theo script hỏi port và mật khẩu
 để tạo `application.yml` từ `example.application.yml`, rồi cho chọn chạy test
 hoặc cài systemd. Không tự cài remote cipher, Docker, Node.js hay IPv6 route
