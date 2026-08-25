@@ -21,8 +21,6 @@ JAR_FILE="$SCRIPT_DIR/Lavalink.jar"
 PLUGIN_DIR="$SCRIPT_DIR/plugins"
 LAVALINK_RELEASE_API="https://api.github.com/repos/lavalink-devs/Lavalink/releases/latest"
 YOUTUBE_RELEASE_API="https://api.github.com/repos/lavalink-devs/youtube-source/releases/latest"
-STATUS_PLUGIN_VERSION="1.1.0"
-STATUS_PLUGIN_URL="https://github.com/takeshi7502/waku-musicbot/releases/download/status-plugin-v${STATUS_PLUGIN_VERSION}/takeshi-status-plugin-${STATUS_PLUGIN_VERSION}.jar"
 
 header() {
   echo -e "${CYAN}===================================================${NC}"
@@ -153,13 +151,7 @@ download_missing_runtime() {
     download_file "$url" "$PLUGIN_DIR/$(basename "$url")"
   fi
 
-  if compgen -G "$PLUGIN_DIR/takeshi-status-plugin-*.jar" >/dev/null; then
-    ok "Status plugin already exists; keeping the current version"
-  else
-    download_file "$STATUS_PLUGIN_URL" "$PLUGIN_DIR/takeshi-status-plugin-${STATUS_PLUGIN_VERSION}.jar"
-  fi
-
-  info "The remaining plugins declared under lavalink.plugins are downloaded automatically by Lavalink on first start."
+  info "LavaSrc is declared in example.application.yml and Lavalink downloads it automatically on first start."
 }
 
 validate_port() {
@@ -185,9 +177,14 @@ check_runtime_files() {
 }
 
 configure_application() {
-  local port password escaped_port escaped_password backup_file
+  local port password escaped_port escaped_password
 
   header "Configure application.yml"
+  if [ -f "$CONFIG_FILE" ]; then
+    ok "application.yml already exists; keeping the current configuration"
+    return
+  fi
+
   read -r -p "Lavalink port [3333]: " port
   port="${port:-3333}"
   validate_port "$port" || die "Invalid port: $port"
@@ -199,17 +196,11 @@ configure_application() {
     warn "Password cannot be blank."
   done
 
-  if [ -f "$CONFIG_FILE" ]; then
-    backup_file="$CONFIG_FILE.bak.$(date +%Y%m%d-%H%M%S)"
-    cp "$CONFIG_FILE" "$backup_file"
-    info "Backed up the previous config to $(basename "$backup_file")"
-  fi
-
   escaped_port="$(escape_sed_replacement "$port")"
   escaped_password="$(escape_sed_replacement "$password")"
   sed \
-    -e "0,/^  port: 3333$/s|^  port: 3333$|  port: $escaped_port|" \
-    -e "0,/^    password: \"replace-with-a-long-lavalink-password\"$/s|^    password: \"replace-with-a-long-lavalink-password\"$|    password: \"$escaped_password\"|" \
+    -e "0,/^  port: [0-9][0-9]*[[:space:]]*$/s|^  port: [0-9][0-9]*[[:space:]]*$|  port: $escaped_port|" \
+    -e "0,/^    password: .*[[:space:]]*$/s|^    password: .*[[:space:]]*$|    password: \"$escaped_password\"|" \
     "$TEMPLATE_FILE" > "$CONFIG_FILE"
 
   chmod 600 "$CONFIG_FILE"
