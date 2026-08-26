@@ -5,7 +5,7 @@ set -Eeuo pipefail
 
 REPOSITORY="takeshi7502/waku-musicbot"
 BRANCH="lavalink"
-RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${BRANCH}"
+GITHUB_CONTENTS_API="https://api.github.com/repos/${REPOSITORY}/contents"
 INSTALL_DIR="${LAVALINK_DIR:-$HOME/lavalink}"
 
 info() { printf '[lavalink] %s\n' "$*"; }
@@ -16,9 +16,11 @@ fetch_file() {
   temporary_file="${destination}.download.$$"
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --retry 2 "$source_url" -o "$temporary_file"
+    curl -fsSL --retry 2 \
+      -H 'Accept: application/vnd.github.raw+json' \
+      "$source_url" -o "$temporary_file"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$temporary_file" "$source_url"
+    wget -q --header='Accept: application/vnd.github.raw+json' -O "$temporary_file" "$source_url"
   else
     die "curl or wget is required."
   fi
@@ -38,7 +40,7 @@ install_file_if_missing() {
   fi
 
   info "Downloading $filename"
-  fetch_file "$RAW_BASE/$filename" "$destination"
+  fetch_file "$GITHUB_CONTENTS_API/$filename?ref=$BRANCH" "$destination"
 }
 
 mkdir -p "$INSTALL_DIR"
@@ -49,4 +51,12 @@ install_file_if_missing "run.sh"
 install_file_if_missing "example.application.yml"
 chmod 700 "$INSTALL_DIR/run.sh"
 
-exec bash "$INSTALL_DIR/run.sh"
+# When this bootstrap is piped from curl, stdin is the downloaded script and
+# reaches EOF before run.sh can ask its setup questions.  Hand the interactive
+# script the controlling terminal instead, so `curl ... | bash` continues into
+# the complete setup flow.
+if [ ! -r /dev/tty ] || [ ! -w /dev/tty ]; then
+  die "An interactive terminal is required. Run this command directly in a shell."
+fi
+
+exec bash "$INSTALL_DIR/run.sh" </dev/tty

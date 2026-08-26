@@ -8,7 +8,7 @@ server:
 
 lavalink:
   server:
-    password: "password"
+    password: "takeshi.dev"
     sources:
       # A compatible youtube-source plugin in ./plugins owns YouTube requests.
       youtube: false

@@ -19,6 +19,7 @@ TEMPLATE_FILE="$SCRIPT_DIR/example.application.yml"
 CONFIG_FILE="$SCRIPT_DIR/application.yml"
 JAR_FILE="$SCRIPT_DIR/Lavalink.jar"
 PLUGIN_DIR="$SCRIPT_DIR/plugins"
+INTERACTIVE_TTY="/dev/tty"
 LAVALINK_RELEASE_API="https://api.github.com/repos/lavalink-devs/Lavalink/releases/latest"
 YOUTUBE_RELEASE_API="https://api.github.com/repos/lavalink-devs/youtube-source/releases/latest"
 
@@ -32,6 +33,26 @@ info() { echo -e "${CYAN}• $*${NC}"; }
 ok() { echo -e "${GREEN}✓ $*${NC}"; }
 warn() { echo -e "${YELLOW}! $*${NC}"; }
 die() { echo -e "${RED}✗ $*${NC}" >&2; exit 1; }
+
+require_interactive_tty() {
+  [ -r "$INTERACTIVE_TTY" ] && [ -w "$INTERACTIVE_TTY" ] || \
+    die "This setup needs an interactive terminal. Run it directly in a shell."
+}
+
+read_tty() {
+  local prompt="$1" secret="${2:-false}"
+
+  require_interactive_tty
+  printf '%s' "$prompt" > "$INTERACTIVE_TTY"
+  if [ "$secret" = true ]; then
+    if ! IFS= read -r -s REPLY < "$INTERACTIVE_TTY"; then
+      die "Could not read input from the terminal."
+    fi
+    printf '\n' > "$INTERACTIVE_TTY"
+  elif ! IFS= read -r REPLY < "$INTERACTIVE_TTY"; then
+    die "Could not read input from the terminal."
+  fi
+}
 
 sudo_cmd() {
   if [ "$EUID" -eq 0 ]; then
@@ -185,16 +206,13 @@ configure_application() {
     return
   fi
 
-  read -r -p "Lavalink port [3333]: " port
+  read_tty "Lavalink port [3333]: "
+  port="$REPLY"
   port="${port:-3333}"
   validate_port "$port" || die "Invalid port: $port"
 
-  while :; do
-    read -r -s -p "Lavalink password: " password
-    echo
-    [ -n "$password" ] && break
-    warn "Password cannot be blank."
-  done
+  read_tty "Lavalink password [takeshi.dev]: " true
+  password="${REPLY:-takeshi.dev}"
 
   escaped_port="$(escape_sed_replacement "$port")"
   escaped_password="$(escape_sed_replacement "$password")"
@@ -209,6 +227,8 @@ configure_application() {
 }
 
 run_test() {
+  local lavalink_status=0
+
   header "Run Lavalink test"
   check_runtime_files
 
@@ -219,8 +239,15 @@ run_test() {
   fi
 
   [ -f "$CONFIG_FILE" ] || die "Run configuration setup first."
-  info "Starting Lavalink in this terminal. Press Ctrl+C to stop it."
-  java -jar "$JAR_FILE"
+  info "Starting Lavalink in this terminal. Press Ctrl+C to stop it and return to the menu."
+
+  trap 'printf "\n" > "$INTERACTIVE_TTY"' INT
+  java -jar "$JAR_FILE" || lavalink_status=$?
+  trap - INT
+
+  if [ "$lavalink_status" -ne 0 ] && [ "$lavalink_status" -ne 130 ]; then
+    warn "Lavalink test exited with status $lavalink_status."
+  fi
 }
 
 install_systemd() {
@@ -232,7 +259,8 @@ install_systemd() {
   command -v systemctl >/dev/null 2>&1 || die "systemd is unavailable on this system."
 
   java_path="$(command -v java)"
-  service_user="${SUDO_USER:-$USER}"
+  service_user="$(stat -c '%U' "$SCRIPT_DIR" 2>/dev/null || printf '%s' "${SUDO_USER:-$USER}")"
+  id -u "$service_user" >/dev/null 2>&1 || service_user="${SUDO_USER:-$USER}"
   service_group="$(id -gn "$service_user" 2>/dev/null || printf '%s' "$service_user")"
 
   sudo_cmd tee "/etc/systemd/system/$SERVICE_NAME.service" >/dev/null <<EOF
@@ -255,12 +283,54 @@ WantedBy=multi-user.target
 EOF
 
   sudo_cmd systemctl daemon-reload
-  sudo_cmd systemctl enable --now "$SERVICE_NAME"
+  sudo_cmd systemctl enable "$SERVICE_NAME"
+  sudo_cmd systemctl restart "$SERVICE_NAME"
+  sudo_cmd systemctl status "$SERVICE_NAME" --no-pager
+  follow_systemd_logs
+}
+
+require_systemd_service() {
+  command -v systemctl >/dev/null 2>&1 || die "systemd is unavailable on this system."
+
+  if ! sudo_cmd systemctl cat "$SERVICE_NAME" >/dev/null 2>&1; then
+    warn "The $SERVICE_NAME systemd service is not installed yet. Choose option 1 first."
+    return 1
+  fi
+}
+
+follow_systemd_logs() {
+  local journal_status=0
+
+  require_systemd_service || return
+  header "Lavalink systemd logs"
+  info "Showing live logs. Press Ctrl+C to return to the menu."
+
+  # Ctrl+C is for journalctl only; the setup menu must stay available.
+  trap 'printf "\n" > "$INTERACTIVE_TTY"' INT
+  sudo_cmd journalctl -u "$SERVICE_NAME" -n 100 -f || journal_status=$?
+  trap - INT
+
+  if [ "$journal_status" -ne 0 ] && [ "$journal_status" -ne 130 ]; then
+    warn "journalctl exited with status $journal_status."
+  fi
+}
+
+restart_systemd() {
+  header "Restart Lavalink systemd service"
+  require_systemd_service || return
   sudo_cmd systemctl restart "$SERVICE_NAME"
   sudo_cmd systemctl status "$SERVICE_NAME" --no-pager
 }
 
+stop_systemd() {
+  header "Stop Lavalink systemd service"
+  require_systemd_service || return
+  sudo_cmd systemctl stop "$SERVICE_NAME"
+  ok "Lavalink systemd service stopped"
+}
+
 main() {
+  require_interactive_tty
   header "Lavalink VPS setup"
   ensure_java
   download_missing_runtime
@@ -269,16 +339,23 @@ main() {
 
   while true; do
     echo
-    echo "1) Run Lavalink test in this terminal"
-    echo "2) Install / update and start systemd service"
+    echo "1) Install / update and start systemd service"
+    echo "2) Run Lavalink test in this terminal"
+    echo "3) View Lavalink systemd logs"
+    echo "4) Restart Lavalink systemd service"
+    echo "5) Stop Lavalink systemd service"
     echo "0) Exit"
-    read -r -p "Choose: " choice
+    read_tty "Choose: "
+    choice="$REPLY"
 
     case "$choice" in
-      1) run_test ;;
-      2) install_systemd ;;
+      1) install_systemd ;;
+      2) run_test ;;
+      3) follow_systemd_logs ;;
+      4) restart_systemd ;;
+      5) stop_systemd ;;
       0) exit 0 ;;
-      *) warn "Please choose 1, 2, or 0." ;;
+      *) warn "Please choose a number from 0 to 5." ;;
     esac
   done
 }
