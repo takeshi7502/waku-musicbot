@@ -20,6 +20,8 @@ CONFIG_FILE="$SCRIPT_DIR/application.yml"
 JAR_FILE="$SCRIPT_DIR/Lavalink.jar"
 PLUGIN_DIR="$SCRIPT_DIR/plugins"
 INTERACTIVE_TTY="/dev/tty"
+SETUP_STATE_FILE="$SCRIPT_DIR/.lavalink-setup-state"
+MANAGED_SERVICE_MARKER="# Managed by waku-musicbot Lavalink setup"
 LAVALINK_RELEASE_API="https://api.github.com/repos/lavalink-devs/Lavalink/releases/latest"
 YOUTUBE_RELEASE_API="https://api.github.com/repos/lavalink-devs/youtube-source/releases/latest"
 
@@ -70,8 +72,30 @@ java_major() {
   }'
 }
 
+list_installed_packages() {
+  dpkg-query -W -f='${binary:Package} ${db:Status-Status}\n' 2>/dev/null \
+    | awk '$2 == "installed" { print $1 }' \
+    | LC_ALL=C sort -u
+}
+
+record_java_installation() {
+  local package_name="$1" created_packages_file="$2" temporary_state
+  temporary_state="${SETUP_STATE_FILE}.tmp.$$"
+
+  (
+    umask 077
+    {
+      printf 'JAVA_PACKAGE=%s\n' "$package_name"
+      while IFS= read -r package; do
+        [ -n "$package" ] && printf 'JAVA_CREATED_PACKAGE=%s\n' "$package"
+      done < "$created_packages_file"
+    } > "$temporary_state"
+  )
+  mv "$temporary_state" "$SETUP_STATE_FILE"
+}
+
 ensure_java() {
-  local major package_name
+  local major package_name before_packages after_packages created_packages
 
   if command -v java >/dev/null 2>&1; then
     major="$(java_major || true)"
@@ -95,7 +119,16 @@ ensure_java() {
     warn "openjdk-21-jre-headless is unavailable in this repository; using default-jre."
   fi
 
+  before_packages="$(mktemp)"
+  after_packages="$(mktemp)"
+  created_packages="$(mktemp)"
+  list_installed_packages > "$before_packages"
   sudo_cmd apt-get install -y "$package_name"
+  list_installed_packages > "$after_packages"
+  comm -13 "$before_packages" "$after_packages" > "$created_packages"
+  record_java_installation "$package_name" "$created_packages"
+  rm -f "$before_packages" "$after_packages" "$created_packages"
+
   major="$(java_major || true)"
   [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 17 )) || die "Java installation did not provide Java 17 or newer."
   ok "Java $major is ready"
@@ -269,6 +302,8 @@ Description=Lavalink Music Node
 After=network-online.target
 Wants=network-online.target
 
+$MANAGED_SERVICE_MARKER
+
 [Service]
 Type=simple
 User=$service_user
@@ -329,6 +364,85 @@ stop_systemd() {
   ok "Lavalink systemd service stopped"
 }
 
+is_safe_removal_directory() {
+  case "$SCRIPT_DIR" in
+    /|"$HOME") return 1 ;;
+  esac
+
+  [ "$(basename "$SCRIPT_DIR")" = "lavalink" ]
+}
+
+remove_managed_systemd_service() {
+  local service_file="/etc/systemd/system/$SERVICE_NAME.service"
+
+  [ -f "$service_file" ] || return
+
+  if ! sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file" \
+    && ! sudo_cmd grep -Fqx "WorkingDirectory=$SCRIPT_DIR" "$service_file"; then
+    warn "Keeping $service_file because it is not managed by this setup directory."
+    return
+  fi
+
+  info "Stopping and removing the managed $SERVICE_NAME systemd service..."
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo_cmd systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
+  fi
+  sudo_cmd rm -f "$service_file"
+  command -v systemctl >/dev/null 2>&1 && sudo_cmd systemctl daemon-reload
+}
+
+remove_tracked_java() {
+  local package status
+  local -a packages_to_remove=()
+
+  if [ ! -f "$SETUP_STATE_FILE" ]; then
+    warn "Java was not recorded as installed by this script; keeping all existing Java packages."
+    return
+  fi
+
+  while IFS= read -r package; do
+    [[ "$package" =~ ^[A-Za-z0-9][A-Za-z0-9+.:~-]*$ ]] || continue
+    status="$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true)"
+    [ "$status" = "installed" ] && packages_to_remove+=("$package")
+  done < <(awk -F= '/^JAVA_CREATED_PACKAGE=/ { print $2 }' "$SETUP_STATE_FILE")
+
+  if [ "${#packages_to_remove[@]}" -eq 0 ]; then
+    warn "No Java packages installed by this script remain to remove."
+    return
+  fi
+
+  info "Removing only Java packages installed by this script..."
+  sudo_cmd apt-get purge -y "${packages_to_remove[@]}"
+}
+
+remove_lavalink() {
+  local parent_dir
+
+  header "Remove Lavalink installed by this script"
+  if ! is_safe_removal_directory; then
+    warn "Refusing to remove unsafe directory: $SCRIPT_DIR"
+    warn "Only an installation directory named 'lavalink' can be removed."
+    return
+  fi
+
+  warn "This removes $SCRIPT_DIR, its Lavalink files and managed systemd service."
+  warn "It removes only Java packages recorded as installed by this setup script."
+  read_tty "Type REMOVE to continue: "
+  if [ "$REPLY" != "REMOVE" ]; then
+    info "Removal cancelled."
+    return
+  fi
+
+  remove_managed_systemd_service
+  remove_tracked_java
+
+  parent_dir="$(dirname "$SCRIPT_DIR")"
+  cd "$parent_dir"
+  sudo_cmd rm -rf -- "$SCRIPT_DIR"
+  ok "Lavalink setup was removed."
+  exit 0
+}
+
 main() {
   require_interactive_tty
   header "Lavalink VPS setup"
@@ -344,6 +458,7 @@ main() {
     echo "3) View Lavalink systemd logs"
     echo "4) Restart Lavalink systemd service"
     echo "5) Stop Lavalink systemd service"
+    echo "6) Remove Lavalink installed by this script"
     echo "0) Exit"
     read_tty "Choose: "
     choice="$REPLY"
@@ -354,8 +469,9 @@ main() {
       3) follow_systemd_logs ;;
       4) restart_systemd ;;
       5) stop_systemd ;;
+      6) remove_lavalink ;;
       0) exit 0 ;;
-      *) warn "Please choose a number from 0 to 5." ;;
+      *) warn "Please choose a number from 0 to 6." ;;
     esac
   done
 }

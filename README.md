@@ -19,34 +19,25 @@ Dashboard chỉ nhận metadata công khai của tối đa 50 bài gần nhất.
 
 ## Cài nhanh trên VPS
 
-Yêu cầu: Linux, Java 21 và Node.js 18 trở lên.
+Yêu cầu: Linux. Script sẽ tự kiểm tra và cài Java khi cần.
 
-Không cần clone repository. Trên VPS mới, chạy một lệnh sau:
+Không cần clone repository. Trên VPS mới, chỉ cần chạy lệnh này:
 
 ```bash
 curl -fsSL -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/takeshi7502/waku-musicbot/contents/install.sh?ref=lavalink' | bash
 ```
 
 Lệnh tạo thư mục `~/lavalink`, tải `run.sh` cùng `example.application.yml`, sau đó
-mở luôn trình thiết lập. Muốn dùng thư mục khác:
-
-```bash
-curl -fsSL -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/takeshi7502/waku-musicbot/contents/install.sh?ref=lavalink' | sudo env LAVALINK_DIR=/opt/lavalink bash
-```
-
-Nếu vẫn muốn clone toàn bộ nhánh (ví dụ để dùng status dashboard), có thể dùng:
-
-```bash
-git clone --branch lavalink --single-branch https://github.com/takeshi7502/waku-musicbot.git lavalink
-cd lavalink && ./run.sh
-```
+mở luôn trình thiết lập.
 
 Script chỉ kiểm tra/cài Java khi thiếu, rồi tải `Lavalink.jar` và YouTube Source
 từ release. Những plugin còn lại trong `lavalink.plugins` sẽ
 được Lavalink tải tự động khi khởi động. Tiếp theo script hỏi port và mật khẩu
-để tạo `application.yml` từ `example.application.yml`, rồi cho chọn chạy test
-hoặc cài systemd. Không tự cài remote cipher, Docker, Node.js hay IPv6 route
-planner. Luôn thay refresh token OAuth và Spotify credentials bằng dữ liệu của
+để tạo `application.yml` từ `example.application.yml`, rồi cho chọn cài systemd,
+chạy test, xem log, restart, dừng hoặc gỡ sạch node do script cài. Port mặc định
+là `3333` và password mặc định là `takeshi.dev`. Không tự cài remote cipher,
+Docker, Node.js hay IPv6 route planner. Luôn thay refresh token OAuth và Spotify
+credentials bằng dữ liệu của
 bạn. Không commit `application.yml`.
 
 ### Plugin cần dùng
