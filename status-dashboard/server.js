@@ -155,7 +155,9 @@ function createNodeRuntime() {
     activityStreamRequest: null,
     activityStreamResponse: null,
     activityStreamReconnectTimer: null,
-    activityStreamLive: false
+    activityStreamLive: false,
+    activityPollingUnsupported: false,
+    activityStreamUnsupported: false
   };
 }
 
@@ -273,7 +275,9 @@ function requestLavalink(node, route) {
         });
         response.on("end", () => {
           if (response.statusCode < 200 || response.statusCode >= 300) {
-            reject(new Error(`Lavalink returned HTTP ${response.statusCode}.`));
+            const error = new Error(`Lavalink returned HTTP ${response.statusCode}.`);
+            error.statusCode = response.statusCode;
+            reject(error);
             return;
           }
           try {
@@ -436,16 +440,21 @@ function createNodeStatusPayload(node, statsResult, infoResult) {
 
 async function nodeStatusPayload(node) {
   const runtime = nodeRuntime.get(node.id);
-  const activityRequest = runtime.activityStreamLive
-    ? Promise.resolve(null)
-    : requestLavalink(node, "/status/activity");
+  const shouldPollActivity = !runtime.activityStreamLive && !runtime.activityPollingUnsupported;
+  const activityRequest = shouldPollActivity
+    ? requestLavalink(node, "/status/activity")
+    : Promise.resolve(null);
   const [statsResult, infoResult, activityResult] = await Promise.allSettled([
     requestLavalink(node, "/v4/stats"),
     requestLavalink(node, "/v4/info"),
     activityRequest
   ]);
 
-  if (!runtime.activityStreamLive && activityResult.status === "fulfilled" && activityResult.value) {
+  if (shouldPollActivity && activityResult.status === "rejected" && activityResult.reason?.statusCode === 404) {
+    runtime.activityPollingUnsupported = true;
+  }
+
+  if (shouldPollActivity && activityResult.status === "fulfilled" && activityResult.value) {
     replaceActivityCache(runtime, activityPayload(activityResult.value, node));
   }
 
@@ -526,7 +535,7 @@ function broadcastActivityChange(node, runtime, snapshot) {
 }
 
 function scheduleActivityStreamReconnect(node, runtime) {
-  if (runtime.activityStreamReconnectTimer) return;
+  if (runtime.activityStreamUnsupported || runtime.activityStreamReconnectTimer) return;
   runtime.activityStreamReconnectTimer = setTimeout(() => {
     runtime.activityStreamReconnectTimer = null;
     connectActivityStream(node);
@@ -555,7 +564,7 @@ function handleActivityStreamFrame(node, runtime, frame) {
 
 function connectActivityStream(node) {
   const runtime = nodeRuntime.get(node.id);
-  if (runtime.activityStreamRequest || runtime.activityStreamResponse || runtime.activityStreamReconnectTimer) return;
+  if (runtime.activityStreamUnsupported || runtime.activityStreamRequest || runtime.activityStreamResponse || runtime.activityStreamReconnectTimer) return;
 
   const target = new URL("/status/activity/stream", node.url);
   const client = target.protocol === "https:" ? https : http;
@@ -563,14 +572,14 @@ function connectActivityStream(node) {
   let streamBuffer = "";
   let response = null;
 
-  const closeAndRetry = (reason) => {
+  const closeAndRetry = (reason, retry = true) => {
     if (closed) return;
     closed = true;
     runtime.activityStreamLive = false;
     if (runtime.activityStreamRequest === request) runtime.activityStreamRequest = null;
     if (runtime.activityStreamResponse === response) runtime.activityStreamResponse = null;
     if (reason) console.warn(`Activity stream ${node.id} closed: ${reason}`);
-    scheduleActivityStreamReconnect(node, runtime);
+    if (retry) scheduleActivityStreamReconnect(node, runtime);
   };
 
   const request = client.request(
@@ -587,6 +596,11 @@ function connectActivityStream(node) {
       response = incoming;
       if (incoming.statusCode < 200 || incoming.statusCode >= 300) {
         incoming.resume();
+        if (incoming.statusCode === 404) {
+          runtime.activityStreamUnsupported = true;
+          closeAndRetry(null, false);
+          return;
+        }
         closeAndRetry(`Lavalink returned HTTP ${incoming.statusCode}.`);
         return;
       }

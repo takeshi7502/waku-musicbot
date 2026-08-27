@@ -112,7 +112,9 @@ logging:
     lavalink: INFO
     dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
   request:
-    enabled: true
+    # Dashboard polls /v4/info and /v4/stats periodically; keep those routine
+    # requests out of the Lavalink log. Errors and warnings are unaffected.
+    enabled: false
     includeClientInfo: true
     includeHeaders: false
     includeQueryString: false
