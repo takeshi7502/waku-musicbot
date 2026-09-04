@@ -50,16 +50,23 @@ chmod +x run.sh
 On the first run it checks for Node.js 18+, creates a private `config.json`,
 then offers an interactive menu:
 
-1. install/update and start the systemd service;
+1. install/update and start the systemd service, then optionally publish it through Nginx with HTTPS;
 2. run a foreground test;
 3. follow service logs;
 4. restart the service;
 5. stop the service;
 6. remove only the dashboard setup.
 
-Removal stops and deletes the systemd service, `config.json`, and local
-dashboard data. It deliberately leaves Lavalink, its plugins, Cloudflare
-Tunnel, Node.js, and the dashboard source code untouched.
+When choosing option 1, enter the public domain after its DNS A record points
+to the VPS and inbound TCP ports 80/443 are allowed. The helper creates a
+domain-specific Nginx reverse proxy to the loopback dashboard port from
+`config.json`, then obtains/renews its Let's Encrypt certificate using
+Certbot. Leave the domain blank to run only the loopback service.
+
+Removal stops and deletes the systemd service, managed Nginx site,
+`config.json`, and local dashboard data. It deliberately leaves Lavalink, its
+plugins, Cloudflare Tunnel, Node.js, Nginx, certificates, and dashboard source
+code untouched.
 
 The first configuration creates one local primary node. To add remote nodes,
 edit `config.json` afterwards and choose **Restart** from the menu.
