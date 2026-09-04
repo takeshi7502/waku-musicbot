@@ -21,6 +21,7 @@ logs/
 # Local dashboard state and build/cache artifacts.
 status-dashboard/config.json
 status-dashboard/data/
+status-dashboard/.status-dashboard-setup-state*
 status-plugin/.gradle/
 status-plugin/build/
 .build-lavasrc/

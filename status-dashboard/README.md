@@ -37,6 +37,35 @@ The expected VPS layout is:
 └── status-dashboard/
 ```
 
+### Quick setup script
+
+From the `lavalink` branch, run the dashboard helper directly on the VPS:
+
+```bash
+cd ~/lavalink/status-dashboard
+chmod +x run.sh
+./run.sh
+```
+
+On the first run it checks for Node.js 18+, creates a private `config.json`,
+then offers an interactive menu:
+
+1. install/update and start the systemd service;
+2. run a foreground test;
+3. follow service logs;
+4. restart the service;
+5. stop the service;
+6. remove only the dashboard setup.
+
+Removal stops and deletes the systemd service, `config.json`, and local
+dashboard data. It deliberately leaves Lavalink, its plugins, Cloudflare
+Tunnel, Node.js, and the dashboard source code untouched.
+
+The first configuration creates one local primary node. To add remote nodes,
+edit `config.json` afterwards and choose **Restart** from the menu.
+
+### Manual setup
+
 1. Copy this `lavalink/` folder to the VPS (or pull the repository there).
    Node.js 18+ is required for the dashboard; on Debian/Ubuntu install it with
    `sudo apt update && sudo apt install -y nodejs` if it is not already present.
