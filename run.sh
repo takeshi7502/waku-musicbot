@@ -449,11 +449,83 @@ HƯỚNG DẪN NHANH
 - Sửa commands, events, lib hoặc util: chọn Build lại bot.
 - Thêm/đổi tên slash command: chọn Deploy slash command, rồi Build lại bot.
 - Đổi node Lavalink: dùng mục Thay đổi Lavalink, sau đó Restart bot.
-- API web: chỉ bật khi đã có domain trỏ về VPS và mở cổng 80/443.
+- API web public: domain phải trỏ về VPS; Nginx và HTTPS dùng chung cổng 80/443 theo từng domain.
 - Không cần xoá data khi build; dữ liệu runtime được giữ trong thư mục data.
 
 GUIDE
   pause_menu
+}
+
+ensure_nginx_with_certbot() {
+  if ! command -v nginx >/dev/null 2>&1; then
+    if ! command -v apt-get >/dev/null 2>&1; then
+      echo "Không tìm thấy Nginx. Hãy cài Nginx rồi chạy lại."
+      return 1
+    fi
+    echo "Đang cài Nginx..."
+    run_as_root apt-get update
+    run_as_root apt-get install -y nginx
+  fi
+
+  if ! command -v certbot >/dev/null 2>&1 || ! certbot plugins 2>/dev/null | grep -q 'nginx'; then
+    if ! command -v apt-get >/dev/null 2>&1; then
+      echo "Không tìm thấy Certbot. Hãy cài Certbot và plugin Nginx rồi chạy lại."
+      return 1
+    fi
+    echo "Đang cài Certbot..."
+    run_as_root apt-get update
+    run_as_root apt-get install -y certbot python3-certbot-nginx
+  fi
+
+  run_as_root systemctl enable --now nginx
+}
+
+configure_nginx_api_proxy() {
+  local domain="$1"
+  local site_file="/etc/nginx/sites-available/$domain"
+  local enabled_file="/etc/nginx/sites-enabled/$domain"
+  local temporary_file
+  local replace_config=""
+
+  if [[ -f "$site_file" ]] \
+    && grep -Fq "server_name $domain;" "$site_file" \
+    && grep -Fq "proxy_pass http://127.0.0.1:3000;" "$site_file"; then
+    return 0
+  fi
+
+  if [[ -e "$site_file" || -L "$site_file" ]]; then
+    echo "Đã có cấu hình Nginx cho $domain nhưng không phải cấu hình API hiện tại."
+    read -r -p "Sao lưu và thay thế cấu hình này? [y/N]: " replace_config
+    [[ "$replace_config" == "y" || "$replace_config" == "Y" ]] || return 1
+    run_as_root cp -a "$site_file" "$site_file.bak.$(date +%Y%m%d%H%M%S)"
+  fi
+
+  temporary_file="$(mktemp)"
+  cat > "$temporary_file" <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $domain;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+  run_as_root install -m 644 "$temporary_file" "$site_file"
+  rm -f "$temporary_file"
+
+  if [[ -L "$enabled_file" && ! -e "$enabled_file" ]]; then
+    run_as_root rm -f "$enabled_file"
+  fi
+  if [[ ! -e "$enabled_file" ]]; then
+    run_as_root ln -s "$site_file" "$enabled_file"
+  fi
 }
 
 setup_web_api() {
@@ -471,15 +543,30 @@ setup_web_api() {
     return
   }
 
-  echo "Nginx phải proxy $domain tới 127.0.0.1:3000 và quản lý HTTPS."
-  read -r -p "Tiếp tục bật API web qua Nginx? [y/N]: " confirm
+  echo "API sẽ dùng HTTPS: https://$domain/api/public-status"
+  echo "Yêu cầu: DNS của $domain đã trỏ về VPS, đồng thời TCP 80 và 443 được mở."
+  read -r -p "Tiếp tục cấu hình API qua Nginx và HTTPS? [y/N]: " confirm
   [[ "$confirm" == "y" || "$confirm" == "Y" ]] || return
+
+  ensure_nginx_with_certbot || return
+  configure_nginx_api_proxy "$domain" || return
+
+  if ! run_as_root nginx -t; then
+    echo "Nginx đang có cấu hình lỗi. Sửa lỗi rồi chạy lại mục này."
+    return 1
+  fi
+  run_as_root systemctl reload nginx
 
   update_public_status_config true 127.0.0.1 3000 "$domain"
 
   compose up -d --force-recreate waku-musicbot
-  echo "API web đã bật: https://$domain/api/public-status"
-  echo "Nginx sẽ tiếp tục phục vụ HTTPS và chuyển tiếp request vào bot."
+  if ! run_as_root certbot --nginx -d "$domain" --redirect; then
+    echo "Chưa xin được chứng chỉ. Kiểm tra DNS và firewall TCP 80/443, rồi chạy lại mục này."
+    return 1
+  fi
+
+  echo "API public đã bật: https://$domain/api/public-status"
+  echo "API nội bộ: http://127.0.0.1:3000/api/public-status"
 }
 
 stop_web_api() {
@@ -487,7 +574,7 @@ stop_web_api() {
   read_public_status_values || return
   update_public_status_config false "$CURRENT_PUBLIC_STATUS_HOST" "$CURRENT_PUBLIC_STATUS_PORT" "$CURRENT_PUBLIC_STATUS_DOMAIN"
   compose up -d --force-recreate waku-musicbot
-  echo "Đã tắt API web. Bot nhạc và Nginx vẫn chạy."
+  echo "Đã tắt API web. Cấu hình Nginx và chứng chỉ HTTPS vẫn được giữ lại."
 }
 
 show_web_api_status() {
@@ -513,7 +600,7 @@ show_web_api_status() {
 web_api_menu() {
   while true; do
     echo
-    echo "=== API WEB CÔNG KHAI (NGINX) ==="
+    echo "=== API WEB CÔNG KHAI (NGINX + HTTPS) ==="
     echo "1) Bật / cấu hình API web qua Nginx"
     echo "2) Tắt hoàn toàn API web"
     echo "3) Xem trạng thái"
