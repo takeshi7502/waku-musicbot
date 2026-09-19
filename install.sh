@@ -7,6 +7,7 @@ REPOSITORY="takeshi7502/waku-musicbot"
 BRANCH="lavalink"
 GITHUB_CONTENTS_API="https://api.github.com/repos/${REPOSITORY}/contents"
 INSTALL_DIR="${LAVALINK_DIR:-$HOME/lavalink}"
+CACHE_BUSTER="${LAVALINK_SETUP_CACHE_BUSTER:-$(date +%s)}"
 
 info() { printf '[lavalink] %s\n' "$*"; }
 die() { printf '[lavalink] Error: %s\n' "$*" >&2; exit 1; }
@@ -38,7 +39,7 @@ install_setup_file() {
   # curl invocation can update setup logic without touching application.yml,
   # runtime JARs, plugins, logs, or saved proxy credentials.
   info "Updating $filename"
-  fetch_file "$GITHUB_CONTENTS_API/$filename?ref=$BRANCH" "$destination"
+  fetch_file "$GITHUB_CONTENTS_API/$filename?ref=$BRANCH&cache=$CACHE_BUSTER" "$destination"
 }
 
 mkdir -p "$INSTALL_DIR"

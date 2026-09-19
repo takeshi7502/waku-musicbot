@@ -581,7 +581,7 @@ is_managed_redsocks_config() {
   # Earlier script revisions wrote the marker into the redsocks config itself.
   # Accept only that exact legacy signature, then replace it with the separate
   # marker file below because redsocks does not accept '#' comments.
-  if sudo_cmd head -n 1 "$config_file" | grep -Fqx "$MANAGED_SERVICE_MARKER"; then
+  if sudo_cmd grep -Fq "$MANAGED_SERVICE_MARKER" "$config_file"; then
     warn "Replacing a legacy redsocks configuration created by this setup."
     return 0
   fi
