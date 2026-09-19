@@ -29,17 +29,15 @@ fetch_file() {
   mv "$temporary_file" "$destination"
 }
 
-install_file_if_missing() {
+install_setup_file() {
   local filename destination
   filename="$1"
   destination="$INSTALL_DIR/$filename"
 
-  if [ -f "$destination" ]; then
-    info "Keeping existing $filename"
-    return
-  fi
-
-  info "Downloading $filename"
+  # These are disposable setup files. Refresh them on every bootstrap run so a
+  # curl invocation can update setup logic without touching application.yml,
+  # runtime JARs, plugins, logs, or saved proxy credentials.
+  info "Updating $filename"
   fetch_file "$GITHUB_CONTENTS_API/$filename?ref=$BRANCH" "$destination"
 }
 
@@ -47,9 +45,9 @@ mkdir -p "$INSTALL_DIR"
 INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
 
 info "Installing setup files in $INSTALL_DIR"
-install_file_if_missing "run.sh"
-install_file_if_missing "example.application.yml"
-install_file_if_missing "example.ytdlp.application.yml"
+install_setup_file "run.sh"
+install_setup_file "example.application.yml"
+install_setup_file "example.ytdlp.application.yml"
 chmod 700 "$INSTALL_DIR/run.sh"
 
 # When this bootstrap is piped from curl, stdin is the downloaded script and

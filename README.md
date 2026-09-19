@@ -25,11 +25,13 @@ Yêu cầu: Linux. Script sẽ tự kiểm tra và cài Java khi cần.
 Không cần clone repository. Trên VPS mới, chỉ cần chạy lệnh này:
 
 ```bash
-curl -fsSL -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/takeshi7502/waku-musicbot/contents/install.sh?ref=lavalink' | bash
+CACHE_BUSTER=$(date +%s)
+curl -fsSL -H 'Accept: application/vnd.github.raw+json' "https://api.github.com/repos/takeshi7502/waku-musicbot/contents/install.sh?ref=lavalink&cache=$CACHE_BUSTER" | bash
 ```
 
 Lệnh tạo thư mục `~/lavalink`, tải `run.sh` cùng hai mẫu cấu hình, sau đó mở
-luôn trình thiết lập.
+luôn trình thiết lập. Chạy lại lệnh này sẽ cập nhật ba file setup trên, nhưng
+giữ nguyên `application.yml`, JAR, plugin, log và cấu hình proxy đã có.
 
 Đầu tiên script hỏi source mode:
 
