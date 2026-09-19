@@ -172,7 +172,7 @@ detect_existing_config_mode() {
 }
 
 select_setup_mode() {
-  local selected_mode existing_mode
+  local selected_mode
 
   header "Choose Lavalink source mode"
   echo "1) youtube-source plugin (legacy configuration)"
@@ -184,16 +184,6 @@ select_setup_mode() {
     *) die "Please choose 1 or 2." ;;
   esac
   set_setup_mode "$selected_mode"
-
-  if [ -f "$CONFIG_FILE" ]; then
-    existing_mode="$(detect_existing_config_mode)"
-    if [ "$existing_mode" != "$SETUP_MODE" ]; then
-      warn "application.yml already uses $( [ "$existing_mode" = ytdlp ] && printf 'LavaSrc + yt-dlp' || printf 'youtube-source plugin' )."
-      warn "Keeping the existing configuration; remove application.yml first if you intentionally want to switch modes."
-      set_setup_mode "$existing_mode"
-    fi
-  fi
-
   ok "Selected mode: $(mode_label)"
 }
 
@@ -360,33 +350,97 @@ check_runtime_files() {
 
 configure_application() {
   local port password escaped_port escaped_password escaped_ytdlp_path
+  local existing_mode backup_file temporary_config previous_port previous_password
 
   header "Configure application.yml"
   if [ -f "$CONFIG_FILE" ]; then
-    ok "application.yml already exists; keeping the current configuration"
-    return
+    existing_mode="$(detect_existing_config_mode)"
+    if [ "$existing_mode" = "$SETUP_MODE" ]; then
+      ok "application.yml already exists; keeping the current configuration"
+      return
+    fi
+
+    previous_port="$(awk '
+      /^server:[[:space:]]*$/ { in_server = 1; next }
+      in_server && /^[^[:space:]]/ { exit }
+      in_server && /^  port:[[:space:]]*[0-9]+[[:space:]]*$/ {
+        value = $0
+        sub(/^[[:space:]]*port:[[:space:]]*/, "", value)
+        sub(/[[:space:]]*$/, "", value)
+        print value
+        exit
+      }
+    ' "$CONFIG_FILE" || true)"
+    previous_password="$(awk '
+      /^lavalink:[[:space:]]*$/ { in_lavalink = 1; next }
+      in_lavalink && /^[^[:space:]]/ { exit }
+      in_lavalink && /^  server:[[:space:]]*$/ { in_lavalink_server = 1; next }
+      in_lavalink_server && /^  [^[:space:]]/ { exit }
+      in_lavalink_server && /^    password:[[:space:]]*/ {
+        value = $0
+        sub(/^[[:space:]]*password:[[:space:]]*/, "", value)
+        sub(/[[:space:]]*$/, "", value)
+        if (value ~ /^".*"$/) {
+          sub(/^"/, "", value)
+          sub(/"$/, "", value)
+        }
+        print value
+        exit
+      }
+    ' "$CONFIG_FILE" || true)"
+    validate_port "$previous_port" || previous_port=3333
+    [ -n "$previous_password" ] || previous_password="takeshi.dev"
+
+    warn "Switching application.yml from $existing_mode to $SETUP_MODE mode."
+    info "The current port and password will be kept; the old configuration will be backed up."
+    port="$previous_port"
+    password="$previous_password"
+  else
+    read_tty "Lavalink port [3333]: "
+    port="$REPLY"
+    port="${port:-3333}"
+    validate_port "$port" || die "Invalid port: $port"
+
+    read_tty "Lavalink password [takeshi.dev]: " true
+    password="${REPLY:-takeshi.dev}"
   fi
-
-  read_tty "Lavalink port [3333]: "
-  port="$REPLY"
-  port="${port:-3333}"
-  validate_port "$port" || die "Invalid port: $port"
-
-  read_tty "Lavalink password [takeshi.dev]: " true
-  password="${REPLY:-takeshi.dev}"
 
   escaped_port="$(escape_sed_replacement "$port")"
   escaped_password="$(escape_sed_replacement "$password")"
   escaped_ytdlp_path="$(escape_sed_replacement "$YTDLP_FILE")"
+  temporary_config="${CONFIG_FILE}.tmp.$$"
   sed \
     -e "0,/^  port: [0-9][0-9]*[[:space:]]*$/s|^  port: [0-9][0-9]*[[:space:]]*$|  port: $escaped_port|" \
     -e "0,/^    password: .*[[:space:]]*$/s|^    password: .*[[:space:]]*$|    password: \"$escaped_password\"|" \
     -e "s|__YTDLP_PATH__|$escaped_ytdlp_path|g" \
-    "$TEMPLATE_FILE" > "$CONFIG_FILE"
+    "$TEMPLATE_FILE" > "$temporary_config"
+
+  [ -s "$temporary_config" ] || die "Could not create application.yml from $(basename "$TEMPLATE_FILE")."
+  if [ -n "${existing_mode:-}" ] && [ "$existing_mode" != "$SETUP_MODE" ]; then
+    backup_file="$SCRIPT_DIR/application.yml.${existing_mode}-backup-$(date +%Y%m%d-%H%M%S)"
+    cp -p -- "$CONFIG_FILE" "$backup_file"
+    chmod 600 "$backup_file"
+    ok "Backed up the previous configuration to $(basename "$backup_file")"
+  fi
+  mv "$temporary_config" "$CONFIG_FILE"
 
   chmod 600 "$CONFIG_FILE"
   state_set "SETUP_MODE" "$SETUP_MODE"
   ok "Created application.yml from $(basename "$TEMPLATE_FILE")"
+  if [ -n "${existing_mode:-}" ] && [ "$existing_mode" != "$SETUP_MODE" ]; then
+    case "$existing_mode:$SETUP_MODE" in
+      plugin:ytdlp)
+        rm -f -- "$PLUGIN_DIR"/youtube-plugin-*.jar
+        ok "Removed the mode-1 youtube-source plugin JAR."
+        ;;
+      ytdlp:plugin)
+        rm -f -- "$YTDLP_FILE"
+        rmdir "$BIN_DIR" 2>/dev/null || true
+        ok "Removed the mode-2 yt-dlp binary."
+        ;;
+    esac
+    warn "If Lavalink is running, choose menu option 1 to restart it with the new mode."
+  fi
   if [ "$SETUP_MODE" = plugin ]; then
     warn "Before starting, add your YouTube OAuth refresh token and Spotify credentials to application.yml if you use those sources."
   else

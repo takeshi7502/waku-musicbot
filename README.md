@@ -58,6 +58,13 @@ tự cài remote cipher, Docker, Node.js hay IPv6 route planner. Luôn thay refr
 token OAuth và Spotify credentials bằng dữ liệu của bạn. Không commit
 `application.yml` hoặc file `.lavalink-socks5-proxy`.
 
+Nếu chọn mode khác với `application.yml` hiện tại, script tự backup file cũ thành
+`application.yml.<mode>-backup-<timestamp>`, tạo lại cấu hình theo mode mới và
+giữ nguyên port cùng password. Khi chuyển từ mode 1 sang mode 2, JAR
+`youtube-source` cũ được xoá; chiều ngược lại, binary `yt-dlp` cũ được xoá.
+Proxy SOCKS5 đã lưu được giữ nguyên. Thêm lại OAuth/Spotify hoặc các tuỳ chỉnh
+riêng từ file backup nếu cần, rồi chọn mục `1` để restart Lavalink với mode mới.
+
 ### Plugin cần dùng
 
 - `youtube-source`: cần khi phát/tìm kiếm YouTube. Cài theo cấu hình
