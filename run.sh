@@ -594,6 +594,18 @@ is_managed_redsocks_config() {
     warn "Migrating an orphaned redsocks configuration owned by this setup."
     return 0
   fi
+  # Last recovery path: the setup's private proxy URI still exists and the
+  # config has the exact local-redirection shape this script generates. This
+  # covers a manually removed unit/helper without taking ownership of an
+  # arbitrary proxy config.
+  if [ -f "$PROXY_SETTINGS_FILE" ] \
+    && grep -Eq '^PROXY_URI=socks5h?://' "$PROXY_SETTINGS_FILE" \
+    && sudo_cmd grep -Eq '^[[:space:]]*redirector[[:space:]]*=[[:space:]]*iptables;' "$config_file" \
+    && sudo_cmd grep -Eq '^[[:space:]]*local_ip[[:space:]]*=[[:space:]]*127\.0\.0\.1;' "$config_file" \
+    && sudo_cmd grep -Eq '^[[:space:]]*type[[:space:]]*=[[:space:]]*socks5;' "$config_file"; then
+    warn "Migrating a recognizable redsocks configuration paired with this setup's saved proxy."
+    return 0
+  fi
   return 1
 }
 
