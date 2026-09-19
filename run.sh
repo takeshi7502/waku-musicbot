@@ -16,6 +16,7 @@ NC='\033[0m'
 
 SERVICE_NAME="lavalink"
 REDSOCKS_SERVICE_USER="lavalink-proxy"
+REDSOCKS_LOCAL_PORT=12346
 MODE1_TEMPLATE_FILE="$SCRIPT_DIR/example.application.yml"
 MODE2_TEMPLATE_FILE="$SCRIPT_DIR/example.ytdlp.application.yml"
 TEMPLATE_FILE="$MODE1_TEMPLATE_FILE"
@@ -502,7 +503,9 @@ configure_optional_proxy() {
     esac
   fi
 
-  read_tty "SOCKS5 proxy URI (socks5://user:password@host:port): " true
+  # This is intentionally visible: it lets the operator verify the full URI
+  # before the connectivity check. The saved file is still permission 600.
+  read_tty "SOCKS5 proxy URI (socks5://user:password@host:port): "
   [ -n "$REPLY" ] || die "A SOCKS5 proxy URI is required when proxy setup is enabled."
   parse_socks5_proxy "$REPLY"
   check_proxy_connection
@@ -594,7 +597,7 @@ base {
 
 redsocks {
   local_ip = 127.0.0.1;
-  local_port = 12345;
+  local_port = $REDSOCKS_LOCAL_PORT;
   ip = "$escaped_host";
   port = $PROXY_PORT;
   type = socks5;
@@ -611,7 +614,7 @@ set -Eeuo pipefail
 
 ACTION="\${1:-}"
 LAVALINK_USER="$service_user"
-REDIRECT_PORT=12345
+REDIRECT_PORT=$REDSOCKS_LOCAL_PORT
 
 rule() {
   iptables -w -t nat "\$@"
