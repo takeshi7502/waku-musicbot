@@ -49,6 +49,7 @@ INSTALL_DIR="$(cd "$INSTALL_DIR" && pwd)"
 info "Installing setup files in $INSTALL_DIR"
 install_file_if_missing "run.sh"
 install_file_if_missing "example.application.yml"
+install_file_if_missing "example.ytdlp.application.yml"
 chmod 700 "$INSTALL_DIR/run.sh"
 
 # When this bootstrap is piped from curl, stdin is the downloaded script and

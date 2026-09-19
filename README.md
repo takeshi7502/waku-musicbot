@@ -9,6 +9,7 @@ chạy, và có thể được clone riêng trên VPS.
 ```text
 .
 ├── example.application.yml        # Mẫu cấu hình Lavalink an toàn để tham khảo
+├── example.ytdlp.application.yml  # Mẫu LavaSrc + yt-dlp (mode 2)
 ├── run.sh                         # Trình hỗ trợ cài đặt/quản lý trên Linux
 ├── status-plugin/                 # Plugin lưu activity phát nhạc trong RAM
 └── status-dashboard/              # Web status độc lập, chỉ đọc dữ liệu Lavalink
@@ -27,18 +28,31 @@ Không cần clone repository. Trên VPS mới, chỉ cần chạy lệnh này:
 curl -fsSL -H 'Accept: application/vnd.github.raw+json' 'https://api.github.com/repos/takeshi7502/waku-musicbot/contents/install.sh?ref=lavalink' | bash
 ```
 
-Lệnh tạo thư mục `~/lavalink`, tải `run.sh` cùng `example.application.yml`, sau đó
-mở luôn trình thiết lập.
+Lệnh tạo thư mục `~/lavalink`, tải `run.sh` cùng hai mẫu cấu hình, sau đó mở
+luôn trình thiết lập.
 
-Script chỉ kiểm tra/cài Java khi thiếu, rồi tải `Lavalink.jar` và YouTube Source
-từ release. Những plugin còn lại trong `lavalink.plugins` sẽ
-được Lavalink tải tự động khi khởi động. Tiếp theo script hỏi port và mật khẩu
-để tạo `application.yml` từ `example.application.yml`, rồi cho chọn cài systemd,
-chạy test, xem log, restart, dừng hoặc gỡ sạch node do script cài. Port mặc định
-là `3333` và password mặc định là `takeshi.dev`. Không tự cài remote cipher,
+Đầu tiên script hỏi source mode:
+
+- `1` — giữ nguyên phương thức cũ với `youtube-source` plugin và mẫu
+  `example.application.yml`.
+- `2` — dùng LavaSrc + binary `yt-dlp` tải từ release, với mẫu
+  `example.ytdlp.application.yml`. Mode này không tải hay bật `youtube-source`.
+
+Script chỉ kiểm tra/cài Java khi thiếu, rồi tải `Lavalink.jar` và runtime tương
+ứng với mode đã chọn. Những plugin khai báo trong `lavalink.plugins` được
+Lavalink tải tự động khi khởi động. Sau đó script hỏi port và mật khẩu để tạo
+`application.yml`, rồi cho chọn cài systemd, chạy test, xem log, restart, dừng
+hoặc gỡ sạch node do script cài. Port mặc định là `3333` và password mặc định là
+`takeshi.dev`.
+
+Trong lúc setup có lựa chọn proxy SOCKS5, mặc định `N`. Nếu chọn `Y`, nhập URI
+dạng `socks5://user:password@host:port`. Script kiểm tra proxy trước, lưu URI
+với quyền owner-only, rồi dùng `redsocks` để chuyển **TCP của riêng tiến trình
+Lavalink** qua proxy. Nhờ đó yt-dlp và Java đều dùng cùng IP egress; Discord UDP
+vẫn đi trực tiếp. Proxy này dùng được cho cả hai mode. Không tự cài remote cipher,
 Docker, Node.js hay IPv6 route planner. Luôn thay refresh token OAuth và Spotify
-credentials bằng dữ liệu của
-bạn. Không commit `application.yml`.
+credentials bằng dữ liệu của bạn. Không commit `application.yml` hoặc file
+`.lavalink-socks5-proxy`.
 
 ### Plugin cần dùng
 
