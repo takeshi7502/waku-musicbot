@@ -572,7 +572,8 @@ ensure_redsocks_service_user() {
 }
 
 is_managed_redsocks_config() {
-  local config_file="/etc/redsocks-lavalink.conf"
+  local config_file="/etc/redsocks-lavalink.conf" service_file="/etc/systemd/system/redsocks-lavalink.service"
+  local rules_helper="/usr/local/sbin/lavalink-egress-rules"
 
   [ -e "$config_file" ] || return 0
   if [ -f "$PROXY_CONFIG_MARKER_FILE" ] && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$PROXY_CONFIG_MARKER_FILE"; then
@@ -583,6 +584,14 @@ is_managed_redsocks_config() {
   # marker file below because redsocks does not accept '#' comments.
   if sudo_cmd grep -Fq "$MANAGED_SERVICE_MARKER" "$config_file"; then
     warn "Replacing a legacy redsocks configuration created by this setup."
+    return 0
+  fi
+  # A previous manual repair may have removed the invalid marker from the
+  # config. The dedicated unit/helper marker still proves this config belongs
+  # to this setup and may be migrated safely.
+  if { [ -f "$service_file" ] && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file"; } \
+    || { [ -f "$rules_helper" ] && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$rules_helper"; }; then
+    warn "Migrating an orphaned redsocks configuration owned by this setup."
     return 0
   fi
   return 1
