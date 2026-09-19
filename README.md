@@ -48,13 +48,15 @@ hoặc gỡ sạch node do script cài. Port mặc định là `3333` và passwo
 `takeshi.dev`.
 
 Trong lúc setup có lựa chọn proxy SOCKS5, mặc định `N`. Nếu chọn `Y`, nhập URI
-dạng `socks5://user:password@host:port`. Script kiểm tra proxy trước, lưu URI
-với quyền owner-only, rồi dùng `redsocks` để chuyển **TCP của riêng tiến trình
-Lavalink** qua proxy. Nhờ đó yt-dlp và Java đều dùng cùng IP egress; Discord UDP
-vẫn đi trực tiếp. Proxy này dùng được cho cả hai mode. Không tự cài remote cipher,
-Docker, Node.js hay IPv6 route planner. Luôn thay refresh token OAuth và Spotify
-credentials bằng dữ liệu của bạn. Không commit `application.yml` hoặc file
-`.lavalink-socks5-proxy`.
+dạng `socks5://user:password@host:port`. Script kiểm tra proxy trước, lưu URI ở
+`~/lavalink/.lavalink-socks5-proxy` với quyền owner-only, rồi dùng `redsocks`
+để chuyển **TCP của riêng tiến trình Lavalink** qua proxy. Những lần chạy sau tự
+dùng lại proxy đã lưu, không bắt nhập lại. Muốn đổi URI, chọn mục `7` trong menu;
+sau đó chọn mục `1` để cập nhật service. Nhờ đó yt-dlp và Java đều dùng cùng IP
+egress; Discord UDP vẫn đi trực tiếp. Proxy này dùng được cho cả hai mode. Không
+tự cài remote cipher, Docker, Node.js hay IPv6 route planner. Luôn thay refresh
+token OAuth và Spotify credentials bằng dữ liệu của bạn. Không commit
+`application.yml` hoặc file `.lavalink-socks5-proxy`.
 
 ### Plugin cần dùng
 

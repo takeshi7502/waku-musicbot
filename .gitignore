@@ -12,6 +12,7 @@ Lavalink.jar
 application.yml
 application_server.yml
 .lavalink-setup-state*
+.lavalink-socks5-proxy
 plugins/
 logs/
 *.log

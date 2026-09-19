@@ -507,29 +507,33 @@ save_proxy_settings() {
 }
 
 configure_optional_proxy() {
-  local configure_proxy
+  local mode="${1:-initial}" configure_proxy
 
   header "Optional SOCKS5 proxy"
   if proxy_is_configured; then
     ok "An authenticated SOCKS5 proxy is already configured for Lavalink TCP traffic."
-    read_tty "Replace the current proxy? [y/N]: "
-    case "${REPLY:-N}" in
-      y|Y|yes|YES) ;;
-      *) return ;;
-    esac
+    if [ "$mode" != "replace" ]; then
+      info "Reusing the saved proxy. Choose menu option 7 only if you want to replace it."
+      return
+    fi
+    info "Enter the replacement URI below. It will be checked before the saved proxy is updated."
   else
     PROXY_ENABLED=false
-    read_tty "Set up a transparent SOCKS5 proxy for Lavalink? [y/N]: "
-    configure_proxy="${REPLY:-N}"
-    case "$configure_proxy" in
-      y|Y|yes|YES) ;;
-      n|N|no|NO|'')
-        state_set "PROXY_ENABLED" "false"
-        info "No SOCKS5 proxy will be used."
-        return
-        ;;
-      *) die "Please answer y or n." ;;
-    esac
+    if [ "$mode" = "replace" ]; then
+      info "No saved proxy exists yet; enter the SOCKS5 URI below to create one."
+    else
+      read_tty "Set up a transparent SOCKS5 proxy for Lavalink? [y/N]: "
+      configure_proxy="${REPLY:-N}"
+      case "$configure_proxy" in
+        y|Y|yes|YES) ;;
+        n|N|no|NO|'')
+          state_set "PROXY_ENABLED" "false"
+          info "No SOCKS5 proxy will be used."
+          return
+          ;;
+        *) die "Please answer y or n." ;;
+      esac
+    fi
   fi
 
   # This is intentionally visible: it lets the operator verify the full URI
@@ -1123,6 +1127,7 @@ main() {
     echo "4) Restart Lavalink systemd service"
     echo "5) Stop Lavalink systemd service"
     echo "6) Remove Lavalink installed by this script"
+    echo "7) Replace saved SOCKS5 proxy"
     echo "0) Exit"
     read_tty "Choose: "
     choice="$REPLY"
@@ -1134,8 +1139,12 @@ main() {
       4) restart_systemd ;;
       5) stop_systemd ;;
       6) remove_lavalink ;;
+      7)
+        configure_optional_proxy replace
+        info "Choose option 1 to apply the saved proxy change to the systemd service."
+        ;;
       0) exit 0 ;;
-      *) warn "Please choose a number from 0 to 6." ;;
+      *) warn "Please choose a number from 0 to 7." ;;
     esac
   done
 }
