@@ -394,6 +394,34 @@ configure_application() {
   fi
 }
 
+migrate_ytdlp_compatibility_config() {
+  local temporary_config
+
+  [ "$SETUP_MODE" = ytdlp ] || return
+  [ -f "$CONFIG_FILE" ] || return
+
+  # Older mode-2 templates enabled YouTube lyrics. LavaSrc implements those
+  # through LavaSearch, which requires youtube-source and prevents a yt-dlp-only
+  # node from booting. Update only that known generated setting.
+  temporary_config="${CONFIG_FILE}.tmp.$$"
+  awk '
+    /^    lyrics-sources:[[:space:]]*$/ { in_lyrics_sources = 1 }
+    in_lyrics_sources && !/^    lyrics-sources:[[:space:]]*$/ && /^    [A-Za-z0-9_-]+:[[:space:]]*$/ { in_lyrics_sources = 0 }
+    in_lyrics_sources && /^      youtube:[[:space:]]*true[[:space:]]*$/ {
+      sub(/true[[:space:]]*$/, "false")
+    }
+    { print }
+  ' "$CONFIG_FILE" > "$temporary_config"
+
+  if ! cmp -s "$CONFIG_FILE" "$temporary_config"; then
+    mv "$temporary_config" "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+    ok "Updated mode-2 configuration: disabled YouTube LavaSearch lyrics."
+  else
+    rm -f "$temporary_config"
+  fi
+}
+
 proxy_uri_decode() {
   local encoded="$1" decoded
 
@@ -1084,6 +1112,7 @@ main() {
   download_missing_runtime
   check_template
   configure_application
+  migrate_ytdlp_compatibility_config
   configure_optional_proxy
 
   while true; do

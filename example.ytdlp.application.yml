@@ -47,7 +47,9 @@ plugins:
       youtube: false
       ytdlp: true
     lyrics-sources:
-      youtube: true
+      # YouTube lyrics use LavaSearch, which requires youtube-source. Keep it
+      # off in yt-dlp-only mode; LRCLIB lyrics remain available.
+      youtube: false
       lrcLib: true
     spotify:
       clientId: ""
