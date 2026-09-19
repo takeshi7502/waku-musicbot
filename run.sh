@@ -28,6 +28,7 @@ YTDLP_FILE="$BIN_DIR/yt-dlp"
 INTERACTIVE_TTY="/dev/tty"
 SETUP_STATE_FILE="$SCRIPT_DIR/.lavalink-setup-state"
 PROXY_SETTINGS_FILE="$SCRIPT_DIR/.lavalink-socks5-proxy"
+PROXY_CONFIG_MARKER_FILE="/etc/redsocks-lavalink.managed"
 MANAGED_SERVICE_MARKER="# Managed by waku-musicbot Lavalink setup"
 LAVALINK_RELEASE_API="https://api.github.com/repos/lavalink-devs/Lavalink/releases/latest"
 YOUTUBE_RELEASE_API="https://api.github.com/repos/lavalink-devs/youtube-source/releases/latest"
@@ -531,6 +532,36 @@ record_proxy_installation() {
   done < "$created_packages_file"
 }
 
+install_redsocks_without_starting_default_service() {
+  local policy_file="/usr/sbin/policy-rc.d" temporary_policy created_policy=false install_status=0
+
+  # Ubuntu/Debian's redsocks package tries to start its generic service during
+  # installation. That service uses its distro config/port, which is unrelated
+  # to this setup and can fail because another local proxy already owns it.
+  # A temporary policy hook prevents only package-managed service starts.
+  if [ ! -e "$policy_file" ]; then
+    temporary_policy="$(mktemp)"
+    printf '%s\n' '#!/bin/sh' 'exit 101' > "$temporary_policy"
+    sudo_cmd install -o root -g root -m 755 "$temporary_policy" "$policy_file"
+    rm -f "$temporary_policy"
+    created_policy=true
+  fi
+
+  sudo_cmd apt-get install -y redsocks || install_status=$?
+
+  if [ "$created_policy" = true ]; then
+    sudo_cmd rm -f "$policy_file"
+  fi
+  [ "$install_status" -eq 0 ] || die "redsocks could not be installed."
+
+  # Only this newly-installed package service is disabled. Existing redsocks
+  # installations are left alone because they may belong to another service.
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo_cmd systemctl disable --now redsocks.service >/dev/null 2>&1 || true
+    sudo_cmd systemctl reset-failed redsocks.service >/dev/null 2>&1 || true
+  fi
+}
+
 ensure_redsocks_service_user() {
   if id -u "$REDSOCKS_SERVICE_USER" >/dev/null 2>&1; then
     return
@@ -540,9 +571,88 @@ ensure_redsocks_service_user() {
   state_set "PROXY_CREATED_SYSTEM_USER" "true"
 }
 
+is_managed_redsocks_config() {
+  local config_file="/etc/redsocks-lavalink.conf"
+
+  [ -e "$config_file" ] || return 0
+  if [ -f "$PROXY_CONFIG_MARKER_FILE" ] && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$PROXY_CONFIG_MARKER_FILE"; then
+    return 0
+  fi
+  # Earlier script revisions wrote the marker into the redsocks config itself.
+  # Accept only that exact legacy signature, then replace it with the separate
+  # marker file below because redsocks does not accept '#' comments.
+  if sudo_cmd head -n 1 "$config_file" | grep -Fqx "$MANAGED_SERVICE_MARKER"; then
+    warn "Replacing a legacy redsocks configuration created by this setup."
+    return 0
+  fi
+  return 1
+}
+
+stop_managed_proxy_runtime() {
+  command -v systemctl >/dev/null 2>&1 || return
+  sudo_cmd systemctl stop lavalink-egress-rules.service >/dev/null 2>&1 || true
+  sudo_cmd systemctl stop redsocks-lavalink.service >/dev/null 2>&1 || true
+}
+
+select_free_redsocks_port() {
+  local candidate
+
+  command -v ss >/dev/null 2>&1 || die "The 'ss' command is required to choose a safe local redsocks port."
+  for candidate in 12346 12347 12348 12349 12350; do
+    if ! ss -ltnH "sport = :$candidate" 2>/dev/null | grep -q .; then
+      REDSOCKS_LOCAL_PORT="$candidate"
+      ok "Using free local redsocks port: 127.0.0.1:$REDSOCKS_LOCAL_PORT"
+      return
+    fi
+  done
+  die "Ports 12346 through 12350 are already in use. Stop the conflicting local service or free one of those ports."
+}
+
+write_validated_redsocks_config() {
+  local redsocks_bin="$1" escaped_host="$2" escaped_username="$3" escaped_password="$4"
+  local proxy_auth_lines temporary_config
+
+  proxy_auth_lines=""
+  if [ -n "$PROXY_USERNAME" ]; then
+    proxy_auth_lines=$'  login = "'"$escaped_username"$'";\n  password = "'"$escaped_password"$'";'
+  fi
+
+  temporary_config="$(mktemp)"
+  (
+    umask 077
+    {
+      printf '%s\n' 'base {'
+      printf '%s\n' '  log_debug = off;'
+      printf '%s\n' '  log_info = on;'
+      printf '%s\n' '  daemon = off;'
+      printf '%s\n' '  redirector = iptables;'
+      printf '%s\n\n' '}'
+      printf '%s\n' 'redsocks {'
+      printf '%s\n' '  local_ip = 127.0.0.1;'
+      printf '  local_port = %s;\n' "$REDSOCKS_LOCAL_PORT"
+      printf '  ip = "%s";\n' "$escaped_host"
+      printf '  port = %s;\n' "$PROXY_PORT"
+      printf '%s\n' '  type = socks5;'
+      [ -z "$proxy_auth_lines" ] || printf '%s\n' "$proxy_auth_lines"
+      printf '%s\n' '}'
+    } > "$temporary_config"
+  )
+
+  if ! sudo_cmd "$redsocks_bin" -t -c "$temporary_config"; then
+    rm -f "$temporary_config"
+    die "Generated redsocks configuration failed syntax validation; no proxy service was started."
+  fi
+  sudo_cmd install -o root -g "$REDSOCKS_SERVICE_USER" -m 640 "$temporary_config" /etc/redsocks-lavalink.conf
+  rm -f "$temporary_config"
+  sudo_cmd tee "$PROXY_CONFIG_MARKER_FILE" >/dev/null <<EOF
+$MANAGED_SERVICE_MARKER
+EOF
+  sudo_cmd chmod 600 "$PROXY_CONFIG_MARKER_FILE"
+}
+
 ensure_proxy_runtime() {
   local service_user="$1" before_packages after_packages created_packages redsocks_bin proxy_ipv4
-  local escaped_host escaped_username escaped_password proxy_auth_lines managed_file
+  local escaped_host escaped_username escaped_password managed_file
 
   proxy_is_configured || return 0
   command -v iptables >/dev/null 2>&1 || die "iptables is required for transparent SOCKS5 proxy routing."
@@ -556,7 +666,7 @@ ensure_proxy_runtime() {
     created_packages="$(mktemp)"
     list_installed_packages > "$before_packages"
     sudo_cmd apt-get update
-    sudo_cmd apt-get install -y redsocks
+    install_redsocks_without_starting_default_service
     list_installed_packages > "$after_packages"
     comm -13 "$before_packages" "$after_packages" > "$created_packages"
     record_proxy_installation "$created_packages"
@@ -570,42 +680,16 @@ ensure_proxy_runtime() {
   escaped_host="$(escape_redsocks_value "$proxy_ipv4")"
   escaped_username="$(escape_redsocks_value "$PROXY_USERNAME")"
   escaped_password="$(escape_redsocks_value "$PROXY_PASSWORD")"
-  proxy_auth_lines=""
-  if [ -n "$PROXY_USERNAME" ]; then
-    proxy_auth_lines=$'  login = "'"$escaped_username"$'";\n  password = "'"$escaped_password"$'";'
-  fi
 
-  for managed_file in /etc/systemd/system/redsocks-lavalink.service /etc/systemd/system/lavalink-egress-rules.service /usr/local/sbin/lavalink-egress-rules /etc/redsocks-lavalink.conf; do
+  for managed_file in /etc/systemd/system/redsocks-lavalink.service /etc/systemd/system/lavalink-egress-rules.service /usr/local/sbin/lavalink-egress-rules; do
     if [ -f "$managed_file" ] && ! sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$managed_file"; then
       die "Refusing to overwrite unmanaged proxy file: $managed_file"
     fi
   done
-  if command -v systemctl >/dev/null 2>&1 && sudo_cmd systemctl is-active --quiet lavalink-egress-rules.service; then
-    # Stop first so the previous helper removes any owner-specific rules before
-    # this setup rewrites it for the current Lavalink service user.
-    sudo_cmd systemctl stop lavalink-egress-rules.service
-  fi
-
-  sudo_cmd tee /etc/redsocks-lavalink.conf >/dev/null <<EOF
-$MANAGED_SERVICE_MARKER
-base {
-  log_debug = off;
-  log_info = on;
-  daemon = off;
-  redirector = iptables;
-}
-
-redsocks {
-  local_ip = 127.0.0.1;
-  local_port = $REDSOCKS_LOCAL_PORT;
-  ip = "$escaped_host";
-  port = $PROXY_PORT;
-  type = socks5;
-$proxy_auth_lines
-}
-EOF
-  sudo_cmd chown root:"$REDSOCKS_SERVICE_USER" /etc/redsocks-lavalink.conf
-  sudo_cmd chmod 640 /etc/redsocks-lavalink.conf
+  is_managed_redsocks_config || die "Refusing to overwrite unmanaged proxy file: /etc/redsocks-lavalink.conf"
+  stop_managed_proxy_runtime
+  select_free_redsocks_port
+  write_validated_redsocks_config "$redsocks_bin" "$escaped_host" "$escaped_username" "$escaped_password"
 
   sudo_cmd tee /usr/local/sbin/lavalink-egress-rules >/dev/null <<EOF
 #!/usr/bin/env bash
@@ -876,11 +960,10 @@ remove_managed_systemd_service() {
 }
 
 remove_managed_proxy() {
-  local service_file helper_file config_file
+  local helper_file config_file legacy_config=false
   local -a proxy_units=("lavalink-egress-rules.service" "redsocks-lavalink.service")
   local unit
 
-  service_file="/etc/systemd/system/redsocks-lavalink.service"
   helper_file="/usr/local/sbin/lavalink-egress-rules"
   config_file="/etc/redsocks-lavalink.conf"
 
@@ -896,7 +979,14 @@ remove_managed_proxy() {
     sudo_cmd "$helper_file" remove >/dev/null 2>&1 || true
     sudo_cmd rm -f "$helper_file"
   fi
-  if [ -f "$config_file" ] && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$config_file"; then
+  if [ -f "$config_file" ] && sudo_cmd head -n 1 "$config_file" | grep -Fqx "$MANAGED_SERVICE_MARKER"; then
+    legacy_config=true
+  fi
+  if [ -f "$PROXY_CONFIG_MARKER_FILE" ] && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$PROXY_CONFIG_MARKER_FILE"; then
+    sudo_cmd rm -f "$PROXY_CONFIG_MARKER_FILE"
+    legacy_config=true
+  fi
+  if [ "$legacy_config" = true ]; then
     sudo_cmd rm -f "$config_file"
   fi
   if [ "$(state_get "PROXY_CREATED_SYSTEM_USER")" = true ] && id -u "$REDSOCKS_SERVICE_USER" >/dev/null 2>&1; then
