@@ -397,8 +397,10 @@ configure_application() {
 migrate_ytdlp_compatibility_config() {
   local temporary_config
 
-  [ "$SETUP_MODE" = ytdlp ] || return
-  [ -f "$CONFIG_FILE" ] || return
+  # This migration applies only to mode 2. Returning success here matters
+  # because the setup script intentionally runs with `set -e`.
+  [ "$SETUP_MODE" = ytdlp ] || return 0
+  [ -f "$CONFIG_FILE" ] || return 0
 
   # Older mode-2 templates enabled YouTube lyrics. LavaSrc implements those
   # through LavaSearch, which requires youtube-source and prevents a yt-dlp-only
