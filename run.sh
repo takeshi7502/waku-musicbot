@@ -1229,7 +1229,7 @@ remove_tracked_java() {
 remove_lavalink() {
   local parent_dir
 
-  header "Remove Lavalink installed by this script"
+  header "Remove Lavalink"
   if ! is_safe_removal_directory; then
     warn "Refusing to remove unsafe directory: $SCRIPT_DIR"
     warn "Only an installation directory named 'lavalink' can be removed."
@@ -1276,13 +1276,13 @@ main() {
     while true; do
       echo
       echo "1) Install / update and start systemd service"
-      echo "2) Run Lavalink test in this terminal"
+      echo "2) Run Lavalink test"
       echo "3) View Lavalink systemd logs"
       echo "4) Restart Lavalink systemd service"
       echo "5) Stop Lavalink systemd service"
-      echo "6) Remove Lavalink installed by this script"
-      echo "7) Manage saved SOCKS5 proxy (on/off/replace)"
-      echo "8) Return to source mode selection"
+      echo "6) Uninstall Lavalink"
+      echo "7) Manage SOCKS5 proxy (on/off/replace)"
+      echo "8) Back to setup menu"
       echo "0) Exit"
       read_tty "Choose: "
       choice="$REPLY"
