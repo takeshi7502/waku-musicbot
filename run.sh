@@ -531,11 +531,29 @@ load_proxy_settings() {
   stored_uri="$(awk -F= '/^PROXY_URI=/ { print substr($0, 11); exit }' "$PROXY_SETTINGS_FILE")"
   [ -n "$stored_uri" ] || die "The saved SOCKS5 proxy configuration is invalid. Remove $PROXY_SETTINGS_FILE and run setup again."
   parse_socks5_proxy "$stored_uri"
-  PROXY_ENABLED=true
 }
 
-proxy_is_configured() {
+proxy_profile_is_saved() {
   load_proxy_settings
+}
+
+proxy_is_enabled() {
+  local saved_state
+
+  load_proxy_settings || return 1
+  # Older setup files predate this toggle. Keep their existing proxy behavior
+  # until the operator explicitly turns it off.
+  saved_state="$(state_get "PROXY_ENABLED")"
+  case "${saved_state:-true}" in
+    false|off|OFF|0|no|NO)
+      PROXY_ENABLED=false
+      return 1
+      ;;
+    *)
+      PROXY_ENABLED=true
+      return 0
+      ;;
+  esac
 }
 
 check_proxy_connection() {
@@ -566,10 +584,14 @@ configure_optional_proxy() {
   local mode="${1:-initial}" configure_proxy
 
   header "Optional SOCKS5 proxy"
-  if proxy_is_configured; then
-    ok "An authenticated SOCKS5 proxy is already configured for Lavalink TCP traffic."
+  if proxy_profile_is_saved; then
+    if proxy_is_enabled; then
+      ok "A saved SOCKS5 proxy is enabled for Lavalink TCP traffic."
+    else
+      warn "A saved SOCKS5 proxy exists but is currently OFF."
+    fi
     if [ "$mode" != "replace" ]; then
-      info "Reusing the saved proxy. Choose menu option 7 only if you want to replace it."
+      info "Choose menu option 7 to turn it on/off or replace its URI."
       return
     fi
     info "Enter the replacement URI below. It will be checked before the saved proxy is updated."
@@ -600,6 +622,51 @@ configure_optional_proxy() {
   check_proxy_connection
   save_proxy_settings
   ok "The SOCKS5 proxy was saved with owner-only file permissions."
+}
+
+manage_saved_proxy() {
+  local action current_state="OFF"
+
+  header "Manage saved SOCKS5 proxy"
+  if proxy_profile_is_saved; then
+    if proxy_is_enabled; then
+      current_state="ON"
+    fi
+    info "A proxy URI is saved and its current state is $current_state."
+  else
+    warn "No SOCKS5 proxy URI is saved yet. Choose replace to enter one."
+  fi
+
+  read_tty "SOCKS5 proxy action [on/off/replace] (Enter to cancel): "
+  action="${REPLY:-}"
+  case "$action" in
+    on|ON)
+      if ! proxy_profile_is_saved; then
+        warn "No saved proxy exists. Choose replace and enter a URI first."
+        return
+      fi
+      state_set "PROXY_ENABLED" "true"
+      PROXY_ENABLED=true
+      ok "Saved SOCKS5 proxy is ON."
+      info "Choose option 1 to apply it and restart Lavalink."
+      ;;
+    off|OFF)
+      if ! proxy_profile_is_saved; then
+        warn "No saved proxy exists to turn off."
+        return
+      fi
+      state_set "PROXY_ENABLED" "false"
+      PROXY_ENABLED=false
+      ok "Saved SOCKS5 proxy is OFF; its URI remains saved."
+      info "Choose option 1 to remove proxy routing and restart Lavalink directly."
+      ;;
+    replace|REPLACE)
+      configure_optional_proxy replace
+      info "The replacement proxy is saved as ON. Choose option 1 to apply it."
+      ;;
+    '') info "Proxy settings unchanged." ;;
+    *) warn "Enter on, off, or replace." ;;
+  esac
 }
 
 installation_service_user() {
@@ -703,6 +770,25 @@ stop_managed_proxy_runtime() {
   sudo_cmd systemctl stop redsocks-lavalink.service >/dev/null 2>&1 || true
 }
 
+disable_managed_proxy_runtime() {
+  local helper_file="/usr/local/sbin/lavalink-egress-rules" unit
+  local -a proxy_units=("lavalink-egress-rules.service" "redsocks-lavalink.service")
+
+  # Keep the saved URI and generated files intact. This only removes the
+  # running TCP redirection so a later ON can reuse the same proxy profile.
+  if [ -f "$helper_file" ] && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$helper_file"; then
+    sudo_cmd "$helper_file" remove >/dev/null 2>&1 || true
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    for unit in "${proxy_units[@]}"; do
+      if [ -f "/etc/systemd/system/$unit" ] \
+        && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "/etc/systemd/system/$unit"; then
+        sudo_cmd systemctl disable --now "$unit" >/dev/null 2>&1 || true
+      fi
+    done
+  fi
+}
+
 select_free_redsocks_port() {
   local candidate
 
@@ -763,7 +849,7 @@ ensure_proxy_runtime() {
   local service_user="$1" before_packages after_packages created_packages redsocks_bin proxy_ipv4
   local escaped_host escaped_username escaped_password managed_file
 
-  proxy_is_configured || return 0
+  proxy_is_enabled || return 0
   command -v iptables >/dev/null 2>&1 || die "iptables is required for transparent SOCKS5 proxy routing."
   ensure_redsocks_service_user
 
@@ -932,7 +1018,11 @@ run_test() {
 
   [ -f "$CONFIG_FILE" ] || die "Run configuration setup first."
   service_user="$(installation_service_user)"
-  ensure_proxy_runtime "$service_user"
+  if proxy_is_enabled; then
+    ensure_proxy_runtime "$service_user"
+  else
+    disable_managed_proxy_runtime
+  fi
   if [ "$SETUP_MODE" = ytdlp ]; then
     ensure_ytdlp_temp_dir "$service_user"
     java_command+=('-Djava.net.preferIPv4Stack=true' "-Djava.io.tmpdir=$SCRIPT_DIR/tmp")
@@ -963,9 +1053,11 @@ install_systemd() {
   systemd_dependencies=""
   java_options=""
 
-  if proxy_is_configured; then
+  if proxy_is_enabled; then
     ensure_proxy_runtime "$service_user"
     systemd_dependencies=$'Requires=redsocks-lavalink.service lavalink-egress-rules.service\nAfter=redsocks-lavalink.service lavalink-egress-rules.service'
+  else
+    disable_managed_proxy_runtime
   fi
   if [ "$SETUP_MODE" = ytdlp ]; then
     ensure_ytdlp_temp_dir "$service_user"
@@ -1146,11 +1238,14 @@ remove_lavalink() {
 
   warn "This removes $SCRIPT_DIR, its Lavalink files, managed systemd service, and managed SOCKS5 routing."
   warn "It removes only Java and redsocks packages recorded as installed by this setup script."
-  read_tty "Type REMOVE to continue: "
-  if [ "$REPLY" != "REMOVE" ]; then
-    info "Removal cancelled."
-    return
-  fi
+  read_tty "Remove this Lavalink setup? [y/N]: "
+  case "${REPLY:-N}" in
+    y|Y|yes|YES) ;;
+    *)
+      info "Removal cancelled."
+      return
+      ;;
+  esac
 
   remove_managed_systemd_service
   remove_managed_proxy
@@ -1165,43 +1260,46 @@ remove_lavalink() {
 }
 
 main() {
+  local choice
+
   require_interactive_tty
-  header "Lavalink VPS setup"
-  select_setup_mode
-  ensure_java
-  download_missing_runtime
-  check_template
-  configure_application
-  migrate_ytdlp_compatibility_config
-  configure_optional_proxy
-
   while true; do
-    echo
-    echo "1) Install / update and start systemd service"
-    echo "2) Run Lavalink test in this terminal"
-    echo "3) View Lavalink systemd logs"
-    echo "4) Restart Lavalink systemd service"
-    echo "5) Stop Lavalink systemd service"
-    echo "6) Remove Lavalink installed by this script"
-    echo "7) Replace saved SOCKS5 proxy"
-    echo "0) Exit"
-    read_tty "Choose: "
-    choice="$REPLY"
+    header "Lavalink VPS setup"
+    select_setup_mode
+    ensure_java
+    download_missing_runtime
+    check_template
+    configure_application
+    migrate_ytdlp_compatibility_config
+    configure_optional_proxy
 
-    case "$choice" in
-      1) install_systemd ;;
-      2) run_test ;;
-      3) follow_systemd_logs ;;
-      4) restart_systemd ;;
-      5) stop_systemd ;;
-      6) remove_lavalink ;;
-      7)
-        configure_optional_proxy replace
-        info "Choose option 1 to apply the saved proxy change to the systemd service."
-        ;;
-      0) exit 0 ;;
-      *) warn "Please choose a number from 0 to 7." ;;
-    esac
+    while true; do
+      echo
+      echo "1) Install / update and start systemd service"
+      echo "2) Run Lavalink test in this terminal"
+      echo "3) View Lavalink systemd logs"
+      echo "4) Restart Lavalink systemd service"
+      echo "5) Stop Lavalink systemd service"
+      echo "6) Remove Lavalink installed by this script"
+      echo "7) Manage saved SOCKS5 proxy (on/off/replace)"
+      echo "8) Return to source mode selection"
+      echo "0) Exit"
+      read_tty "Choose: "
+      choice="$REPLY"
+
+      case "$choice" in
+        1) install_systemd ;;
+        2) run_test ;;
+        3) follow_systemd_logs ;;
+        4) restart_systemd ;;
+        5) stop_systemd ;;
+        6) remove_lavalink ;;
+        7) manage_saved_proxy ;;
+        8) break ;;
+        0) exit 0 ;;
+        *) warn "Please choose a number from 0 to 8." ;;
+      esac
+    done
   done
 }
 
