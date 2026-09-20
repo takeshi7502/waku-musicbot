@@ -1275,6 +1275,7 @@ main() {
 
     while true; do
       echo
+      info "Current source mode: $(mode_label)"
       echo "1) Install / update and start systemd service"
       echo "2) Run Lavalink test"
       echo "3) View Lavalink systemd logs"
