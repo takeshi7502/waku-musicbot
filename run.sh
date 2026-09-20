@@ -1159,7 +1159,10 @@ is_safe_removal_directory() {
 remove_managed_systemd_service() {
   local service_file="/etc/systemd/system/$SERVICE_NAME.service"
 
-  [ -f "$service_file" ] || return
+  # A service is optional: an installation that was only test-run has no
+  # unit to remove.  This must still be a successful cleanup step because
+  # the script uses `set -e`.
+  [ -f "$service_file" ] || return 0
 
   if ! sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file" \
     && ! sudo_cmd grep -Fqx "WorkingDirectory=$SCRIPT_DIR" "$service_file"; then
@@ -1172,7 +1175,11 @@ remove_managed_systemd_service() {
     sudo_cmd systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
   fi
   sudo_cmd rm -f "$service_file"
-  command -v systemctl >/dev/null 2>&1 && sudo_cmd systemctl daemon-reload
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo_cmd systemctl daemon-reload
+  fi
+
+  return 0
 }
 
 remove_managed_proxy() {
@@ -1211,14 +1218,20 @@ remove_managed_proxy() {
   if [ "$(state_get "PROXY_CREATED_SYSTEM_USER")" = true ] && getent group "$REDSOCKS_SERVICE_USER" >/dev/null 2>&1; then
     sudo_cmd groupdel "$REDSOCKS_SERVICE_USER" 2>/dev/null || warn "Keeping proxy system group $REDSOCKS_SERVICE_USER because it could not be removed safely."
   fi
-  command -v systemctl >/dev/null 2>&1 && sudo_cmd systemctl daemon-reload
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo_cmd systemctl daemon-reload
+  fi
+
+  return 0
 }
 
 remove_tracked_packages() {
   local state_key="$1" description="$2" package status
   local -a packages_to_remove=()
 
-  [ -f "$SETUP_STATE_FILE" ] || return
+  # The setup state is absent for older/manual installs.  There simply are
+  # no script-owned packages to purge, not an uninstall error.
+  [ -f "$SETUP_STATE_FILE" ] || return 0
   while IFS= read -r package; do
     [[ "$package" =~ ^[A-Za-z0-9][A-Za-z0-9+.:~-]*$ ]] || continue
     status="$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true)"
@@ -1230,7 +1243,11 @@ remove_tracked_packages() {
   fi
 
   info "Removing only $description installed by this script..."
-  sudo_cmd apt-get purge -y "${packages_to_remove[@]}"
+  if ! sudo_cmd apt-get purge -y "${packages_to_remove[@]}"; then
+    warn "Could not remove $description automatically; Lavalink files will still be removed."
+  fi
+
+  return 0
 }
 
 remove_tracked_java() {
