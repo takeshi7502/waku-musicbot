@@ -41,10 +41,11 @@ giữ nguyên `application.yml`, JAR, plugin, log và cấu hình proxy đã có
 
 Script chỉ kiểm tra/cài Java khi thiếu, rồi tải `Lavalink.jar` và runtime tương
 ứng với mode đã chọn. Những plugin khai báo trong `lavalink.plugins` được
-Lavalink tải tự động khi khởi động. Sau đó script hỏi port và mật khẩu để tạo
-`application.yml`, rồi cho chọn cài systemd, chạy test, xem log, restart, dừng
-hoặc gỡ sạch node do script cài. Port mặc định là `3333` và password mặc định là
-`takeshi.dev`.
+Lavalink tải tự động khi khởi động. Mỗi lần vào setup, script đều hỏi port và
+mật khẩu: giá trị hiện có được đặt trong `[]`, nên Enter sẽ giữ nguyên còn nhập
+giá trị mới sẽ cập nhật chúng. Sau đó có thể chọn cài systemd, chạy test, xem
+log, restart, dừng hoặc gỡ sạch node do script cài. Port mặc định là `3333` và
+password mặc định là `takeshi.dev`.
 
 Trong lúc setup có lựa chọn proxy SOCKS5, mặc định `N`. Nếu chọn `Y`, nhập URI
 dạng `socks5://user:password@host:port`. Script kiểm tra proxy trước, lưu URI ở

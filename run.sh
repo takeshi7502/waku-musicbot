@@ -350,16 +350,11 @@ check_runtime_files() {
 
 configure_application() {
   local port password escaped_port escaped_password escaped_ytdlp_path
-  local existing_mode backup_file temporary_config previous_port previous_password
+  local existing_mode backup_file temporary_config previous_port previous_password config_source
 
   header "Configure application.yml"
   if [ -f "$CONFIG_FILE" ]; then
     existing_mode="$(detect_existing_config_mode)"
-    if [ "$existing_mode" = "$SETUP_MODE" ]; then
-      ok "application.yml already exists; keeping the current configuration"
-      return
-    fi
-
     previous_port="$(awk '
       /^server:[[:space:]]*$/ { in_server = 1; next }
       in_server && /^[^[:space:]]/ { exit }
@@ -391,31 +386,51 @@ configure_application() {
     validate_port "$previous_port" || previous_port=3333
     [ -n "$previous_password" ] || previous_password="takeshi.dev"
 
-    warn "Switching application.yml from $existing_mode to $SETUP_MODE mode."
-    info "The current port and password will be kept; the old configuration will be backed up."
-    port="$previous_port"
-    password="$previous_password"
+    if [ "$existing_mode" != "$SETUP_MODE" ]; then
+      warn "Switching application.yml from $existing_mode to $SETUP_MODE mode."
+      info "The old configuration will be backed up before the selected mode is created."
+    fi
   else
-    read_tty "Lavalink port [3333]: "
-    port="$REPLY"
-    port="${port:-3333}"
-    validate_port "$port" || die "Invalid port: $port"
-
-    read_tty "Lavalink password [takeshi.dev]: " true
-    password="${REPLY:-takeshi.dev}"
+    previous_port="3333"
+    previous_password="takeshi.dev"
   fi
+
+  # Always present the current values. Pressing Enter preserves them; entering
+  # a value makes it easy to amend the Lavalink port/password on a later run.
+  read_tty "Lavalink port [$previous_port]: "
+  port="${REPLY:-$previous_port}"
+  validate_port "$port" || die "Invalid port: $port"
+
+  read_tty "Lavalink password [$previous_password]: " true
+  password="${REPLY:-$previous_password}"
 
   escaped_port="$(escape_sed_replacement "$port")"
   escaped_password="$(escape_sed_replacement "$password")"
   escaped_ytdlp_path="$(escape_sed_replacement "$YTDLP_FILE")"
   temporary_config="${CONFIG_FILE}.tmp.$$"
+  config_source="$TEMPLATE_FILE"
+  if [ -n "${existing_mode:-}" ] && [ "$existing_mode" = "$SETUP_MODE" ]; then
+    config_source="$CONFIG_FILE"
+  fi
   sed \
     -e "0,/^  port: [0-9][0-9]*[[:space:]]*$/s|^  port: [0-9][0-9]*[[:space:]]*$|  port: $escaped_port|" \
     -e "0,/^    password: .*[[:space:]]*$/s|^    password: .*[[:space:]]*$|    password: \"$escaped_password\"|" \
     -e "s|__YTDLP_PATH__|$escaped_ytdlp_path|g" \
-    "$TEMPLATE_FILE" > "$temporary_config"
+    "$config_source" > "$temporary_config"
 
   [ -s "$temporary_config" ] || die "Could not create application.yml from $(basename "$TEMPLATE_FILE")."
+  if [ -n "${existing_mode:-}" ] && [ "$existing_mode" = "$SETUP_MODE" ]; then
+    if cmp -s "$CONFIG_FILE" "$temporary_config"; then
+      rm -f "$temporary_config"
+      ok "application.yml is unchanged."
+    else
+      mv "$temporary_config" "$CONFIG_FILE"
+      chmod 600 "$CONFIG_FILE"
+      ok "Updated the Lavalink port/password in application.yml."
+    fi
+    state_set "SETUP_MODE" "$SETUP_MODE"
+    return
+  fi
   if [ -n "${existing_mode:-}" ] && [ "$existing_mode" != "$SETUP_MODE" ]; then
     backup_file="$SCRIPT_DIR/application.yml.${existing_mode}-backup-$(date +%Y%m%d-%H%M%S)"
     cp -p -- "$CONFIG_FILE" "$backup_file"
