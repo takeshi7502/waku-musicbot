@@ -35,6 +35,7 @@ YOUTUBE_RELEASE_API="https://api.github.com/repos/lavalink-devs/youtube-source/r
 YTDLP_RELEASE_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download"
 
 SETUP_MODE="plugin"
+SETUP_MANAGEMENT_ONLY=false
 PROXY_ENABLED=false
 PROXY_URI=""
 PROXY_HOST=""
@@ -177,14 +178,31 @@ select_setup_mode() {
   header "Choose Lavalink source mode"
   echo "1) youtube-source plugin (legacy configuration)"
   echo "2) LavaSrc + yt-dlp (YouTube through yt-dlp)"
+  echo "3) Manage the current Lavalink setup (do not change mode or configuration)"
   read_tty "Choose [1]: "
+  SETUP_MANAGEMENT_ONLY=false
   case "${REPLY:-1}" in
     1) selected_mode="plugin" ;;
     2) selected_mode="ytdlp" ;;
-    *) die "Please choose 1 or 2." ;;
+    3)
+      if [ ! -f "$CONFIG_FILE" ]; then
+        warn "No existing application.yml was found. Choose mode 1 or 2 to set up Lavalink first."
+        return 1
+      fi
+      selected_mode="$(detect_existing_config_mode)"
+      SETUP_MANAGEMENT_ONLY=true
+      ;;
+    *)
+      warn "Please choose 1, 2, or 3."
+      return 1
+      ;;
   esac
   set_setup_mode "$selected_mode"
-  ok "Selected mode: $(mode_label)"
+  if [ "$SETUP_MANAGEMENT_ONLY" = true ]; then
+    ok "Managing current mode: $(mode_label)"
+  else
+    ok "Selected mode: $(mode_label)"
+  fi
 }
 
 ensure_java() {
@@ -569,6 +587,20 @@ proxy_is_enabled() {
       return 0
       ;;
   esac
+}
+
+show_proxy_menu_status() {
+  local proxy_state="OFF"
+
+  if ! proxy_profile_is_saved; then
+    info "SOCKS5 proxy: OFF (not configured)"
+    return 0
+  fi
+
+  if proxy_is_enabled; then
+    proxy_state="ON"
+  fi
+  info "SOCKS5 proxy: $proxy_state | $PROXY_URI"
 }
 
 check_proxy_connection() {
@@ -1297,17 +1329,22 @@ main() {
   require_interactive_tty
   while true; do
     header "Lavalink VPS setup"
-    select_setup_mode
-    ensure_java
-    download_missing_runtime
-    check_template
-    configure_application
-    migrate_ytdlp_compatibility_config
-    configure_optional_proxy
+    if ! select_setup_mode; then
+      continue
+    fi
+    if [ "$SETUP_MANAGEMENT_ONLY" != true ]; then
+      ensure_java
+      download_missing_runtime
+      check_template
+      configure_application
+      migrate_ytdlp_compatibility_config
+      configure_optional_proxy
+    fi
 
     while true; do
       echo
       info "Current source mode: $(mode_label)"
+      show_proxy_menu_status
       echo "1) Install / update and start systemd service"
       echo "2) Run Lavalink test"
       echo "3) View Lavalink systemd logs"
