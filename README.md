@@ -60,13 +60,29 @@ Node.js hay IPv6 route planner. Luôn thay refresh token OAuth và Spotify
 credentials bằng dữ liệu của bạn. Không commit `application.yml` hoặc file
 `.lavalink-socks5-proxy`.
 
+### Cloudflare Tunnel cho Lavalink
+
+Trong setup có thêm lựa chọn Cloudflare Tunnel, mặc định `N`. Chọn `Y` khi VPS
+không thể hoặc không muốn mở inbound TCP port Lavalink. Script tải
+`cloudflared`, in URL để bạn đăng nhập và chọn zone Cloudflare, tạo named tunnel
+cùng CNAME cho hostname đã nhập, rồi chạy service `lavalink-cloudflared` tự khởi
+động sau boot. Tunnel forward `https://<hostname>` về
+`http://127.0.0.1:<port-lavalink>` nội bộ nên không cần mở port Lavalink ở
+firewall/provider.
+
+Sau khi setup, thêm node vào bot với hostname đó, port `443`, `secure: true` và
+password Lavalink đang dùng. Mục `8` trong menu service nhận `on`, `off` hoặc
+`replace`; `off` chỉ dừng tunnel, vẫn giữ hostname/credentials để bật lại.
+Gỡ node chỉ xóa service và credentials cục bộ. Remote tunnel/DNS vẫn nằm trong
+Cloudflare account để tránh tự ý xóa tài nguyên trên account.
+
 Nếu chọn mode khác với `application.yml` hiện tại, script tự backup file cũ thành
 `application.yml.<mode>-backup-<timestamp>`, tạo lại cấu hình theo mode mới và
 giữ nguyên port cùng password. Khi chuyển từ mode 1 sang mode 2, JAR
 `youtube-source` cũ được xoá; chiều ngược lại, binary `yt-dlp` cũ được xoá.
 Proxy SOCKS5 đã lưu được giữ nguyên. Thêm lại OAuth/Spotify hoặc các tuỳ chỉnh
 riêng từ file backup nếu cần, rồi chọn mục `1` để restart Lavalink với mode mới.
-Mục `8` trong menu service quay lại màn hình chọn mode 1/2. Khi gỡ sạch ở mục
+Mục `9` trong menu service quay lại màn hình chọn mode 1/2. Khi gỡ sạch ở mục
 `6`, chỉ cần xác nhận `y`; Enter hoặc bất kỳ lựa chọn khác đều huỷ thao tác.
 
 ### Plugin cần dùng

@@ -15,6 +15,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 SERVICE_NAME="lavalink"
+TUNNEL_SERVICE_NAME="lavalink-cloudflared"
 REDSOCKS_SERVICE_USER="lavalink-proxy"
 REDSOCKS_LOCAL_PORT=12346
 MODE1_TEMPLATE_FILE="$SCRIPT_DIR/example.application.yml"
@@ -25,6 +26,10 @@ JAR_FILE="$SCRIPT_DIR/Lavalink.jar"
 PLUGIN_DIR="$SCRIPT_DIR/plugins"
 BIN_DIR="$SCRIPT_DIR/bin"
 YTDLP_FILE="$BIN_DIR/yt-dlp"
+CF_TUNNEL_DIR="$SCRIPT_DIR/.cloudflared"
+CF_TUNNEL_CONFIG_FILE="$CF_TUNNEL_DIR/config.yml"
+CF_TUNNEL_SETTINGS_FILE="$SCRIPT_DIR/.lavalink-cloudflare-tunnel"
+CLOUDFLARED_FILE="$BIN_DIR/cloudflared"
 INTERACTIVE_TTY="/dev/tty"
 SETUP_STATE_FILE="$SCRIPT_DIR/.lavalink-setup-state"
 PROXY_SETTINGS_FILE="$SCRIPT_DIR/.lavalink-socks5-proxy"
@@ -42,6 +47,11 @@ PROXY_HOST=""
 PROXY_PORT=""
 PROXY_USERNAME=""
 PROXY_PASSWORD=""
+CF_TUNNEL_ID=""
+CF_TUNNEL_NAME=""
+CF_TUNNEL_HOSTNAME=""
+CF_TUNNEL_SERVICE_USER=""
+CF_TUNNEL_CREDENTIALS_FILE=""
 
 header() {
   echo -e "${CYAN}===================================================${NC}"
@@ -716,6 +726,444 @@ manage_saved_proxy() {
   esac
 }
 
+configured_lavalink_port() {
+  local current_port
+
+  if [ ! -f "$CONFIG_FILE" ]; then
+    printf '%s\n' "3333"
+    return
+  fi
+
+  current_port="$(awk '
+    /^server:[[:space:]]*$/ { in_server = 1; next }
+    in_server && /^[^[:space:]]/ { exit }
+    in_server && /^  port:[[:space:]]*[0-9]+[[:space:]]*$/ {
+      value = $0
+      sub(/^[[:space:]]*port:[[:space:]]*/, "", value)
+      sub(/[[:space:]]*$/, "", value)
+      print value
+      exit
+    }
+  ' "$CONFIG_FILE" || true)"
+  validate_port "$current_port" || current_port="3333"
+  printf '%s\n' "$current_port"
+}
+
+validate_cloudflare_hostname() {
+  local hostname="$1"
+
+  [[ "$hostname" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]]
+}
+
+normalise_cloudflare_hostname() {
+  local hostname="$1"
+  hostname="${hostname,,}"
+  [[ "$hostname" != *://* && "$hostname" != */* && "$hostname" != *:* ]] || \
+    die "Enter only a hostname, for example lavalink.example.com (without https:// or a port)."
+  validate_cloudflare_hostname "$hostname" || die "Invalid Cloudflare hostname: $hostname"
+  printf '%s\n' "$hostname"
+}
+
+cloudflare_setting_get() {
+  local key="$1"
+  [ -f "$CF_TUNNEL_SETTINGS_FILE" ] || return 0
+  awk -F= -v key="$key" '$1 == key { value = substr($0, length(key) + 2) } END { if (value != "") print value }' "$CF_TUNNEL_SETTINGS_FILE"
+}
+
+load_cloudflare_tunnel_settings() {
+  [ -f "$CF_TUNNEL_SETTINGS_FILE" ] || return 1
+
+  CF_TUNNEL_ID="$(cloudflare_setting_get "TUNNEL_ID")"
+  CF_TUNNEL_NAME="$(cloudflare_setting_get "TUNNEL_NAME")"
+  CF_TUNNEL_HOSTNAME="$(cloudflare_setting_get "HOSTNAME")"
+  CF_TUNNEL_SERVICE_USER="$(cloudflare_setting_get "SERVICE_USER")"
+  CF_TUNNEL_CREDENTIALS_FILE="$(cloudflare_setting_get "CREDENTIALS_FILE")"
+
+  [[ "$CF_TUNNEL_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || \
+    die "The saved Cloudflare Tunnel ID is invalid. Remove $CF_TUNNEL_SETTINGS_FILE and configure it again."
+  [[ "$CF_TUNNEL_NAME" =~ ^[A-Za-z0-9_-]+$ ]] || \
+    die "The saved Cloudflare Tunnel name is invalid. Remove $CF_TUNNEL_SETTINGS_FILE and configure it again."
+  validate_cloudflare_hostname "$CF_TUNNEL_HOSTNAME" || \
+    die "The saved Cloudflare hostname is invalid. Remove $CF_TUNNEL_SETTINGS_FILE and configure it again."
+  id -u "$CF_TUNNEL_SERVICE_USER" >/dev/null 2>&1 || \
+    die "The saved Cloudflare service user no longer exists: $CF_TUNNEL_SERVICE_USER"
+  [[ "$CF_TUNNEL_CREDENTIALS_FILE" = /* && "$CF_TUNNEL_CREDENTIALS_FILE" != *$'\n'* ]] || \
+    die "The saved Cloudflare credentials path is invalid. Remove $CF_TUNNEL_SETTINGS_FILE and configure it again."
+}
+
+cloudflare_tunnel_profile_is_saved() {
+  load_cloudflare_tunnel_settings
+}
+
+cloudflare_tunnel_is_enabled() {
+  local saved_state
+
+  load_cloudflare_tunnel_settings || return 1
+  saved_state="$(state_get "CLOUDFLARE_TUNNEL_ENABLED")"
+  case "${saved_state:-true}" in
+    false|off|OFF|0|no|NO)
+      return 1
+      ;;
+    *) return 0 ;;
+  esac
+}
+
+show_cloudflare_tunnel_menu_status() {
+  local tunnel_state="OFF" local_port
+
+  if ! cloudflare_tunnel_profile_is_saved; then
+    info "Cloudflare Tunnel: OFF (not configured)"
+    return 0
+  fi
+  if cloudflare_tunnel_is_enabled; then
+    tunnel_state="ON"
+  fi
+  local_port="$(configured_lavalink_port)"
+  info "Cloudflare Tunnel: $tunnel_state | https://$CF_TUNNEL_HOSTNAME -> 127.0.0.1:$local_port"
+}
+
+cloudflare_service_user_home() {
+  local service_user="$1" service_home
+
+  service_home="$(getent passwd "$service_user" 2>/dev/null | awk -F: 'NR == 1 { print $6 }')"
+  [ -n "$service_home" ] && [ -d "$service_home" ] || \
+    die "Could not determine a valid home directory for Cloudflare service user: $service_user"
+  printf '%s\n' "$service_home"
+}
+
+run_cloudflared_as_service_user() {
+  local service_user="$1" service_home
+  shift
+  service_home="$(cloudflare_service_user_home "$service_user")"
+
+  if [ "$(id -un)" = "$service_user" ]; then
+    HOME="$service_home" "$@"
+  else
+    sudo_cmd runuser -u "$service_user" -- env "HOME=$service_home" "$@"
+  fi
+}
+
+ensure_cloudflared() {
+  local cloudflared_url
+
+  if [ -x "$CLOUDFLARED_FILE" ]; then
+    ok "cloudflared already exists; keeping the current version"
+    return
+  fi
+
+  mkdir -p "$BIN_DIR"
+  case "$(uname -m)" in
+    x86_64|amd64) cloudflared_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" ;;
+    aarch64|arm64) cloudflared_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" ;;
+    *) die "Cloudflare Tunnel setup supports x86_64 and arm64 only; install cloudflared manually at $CLOUDFLARED_FILE." ;;
+  esac
+
+  info "Downloading cloudflared..."
+  download_file "$cloudflared_url" "$CLOUDFLARED_FILE"
+  chmod 755 "$CLOUDFLARED_FILE"
+  "$CLOUDFLARED_FILE" --version >/dev/null 2>&1 || die "The downloaded cloudflared binary could not start."
+  ok "cloudflared is ready"
+}
+
+cloudflare_tunnel_name_for_hostname() {
+  local hostname="$1" base
+  base="${hostname//./-}"
+  base="${base:0:48}"
+  printf 'lavalink-%s-%s\n' "$base" "$(date +%s)"
+}
+
+ensure_cloudflare_login() {
+  local service_user="$1" service_home="$2" certificate_file
+  certificate_file="$service_home/.cloudflared/cert.pem"
+
+  if [ -s "$certificate_file" ]; then
+    ok "A Cloudflare login certificate already exists for user $service_user"
+    return
+  fi
+
+  warn "Cloudflare authorization is required once for this VPS user."
+  info "cloudflared will print a URL below. Open it on any browser, sign in, choose the zone containing your hostname, then return here."
+  run_cloudflared_as_service_user "$service_user" "$CLOUDFLARED_FILE" tunnel login
+  [ -s "$certificate_file" ] || die "Cloudflare login did not create $certificate_file. Complete the browser authorization, then try again."
+  ok "Cloudflare authorization completed"
+}
+
+create_cloudflare_tunnel() {
+  local service_user="$1" service_home="$2" tunnel_name="$3" create_output credentials_candidate
+
+  if ! create_output="$(run_cloudflared_as_service_user "$service_user" "$CLOUDFLARED_FILE" tunnel create "$tunnel_name" 2>&1)"; then
+    printf '%s\n' "$create_output" >&2
+    warn "Cloudflare could not create tunnel $tunnel_name. It may already exist; choose a different hostname and try again."
+    return 1
+  fi
+  printf '%s\n' "$create_output"
+
+  CF_TUNNEL_ID="$(printf '%s\n' "$create_output" | grep -Eo '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | tail -n 1 || true)"
+  [[ "$CF_TUNNEL_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || \
+    die "cloudflared created a tunnel but its UUID could not be read safely. Check 'cloudflared tunnel list' before retrying."
+  CF_TUNNEL_NAME="$tunnel_name"
+  CF_TUNNEL_SERVICE_USER="$service_user"
+  CF_TUNNEL_CREDENTIALS_FILE="$service_home/.cloudflared/$CF_TUNNEL_ID.json"
+  if [ ! -s "$CF_TUNNEL_CREDENTIALS_FILE" ]; then
+    credentials_candidate="$(find "$service_home/.cloudflared" -maxdepth 1 -type f -name "$CF_TUNNEL_ID.json" -print -quit 2>/dev/null || true)"
+    [ -n "$credentials_candidate" ] && CF_TUNNEL_CREDENTIALS_FILE="$credentials_candidate"
+  fi
+  [ -s "$CF_TUNNEL_CREDENTIALS_FILE" ] || \
+    die "Cloudflare did not create the tunnel credentials file for $CF_TUNNEL_ID."
+}
+
+save_cloudflare_tunnel_settings() {
+  local temporary_file service_group
+  service_group="$(id -gn "$CF_TUNNEL_SERVICE_USER" 2>/dev/null || printf '%s' "$CF_TUNNEL_SERVICE_USER")"
+  temporary_file="$(mktemp)"
+  (
+    umask 077
+    printf 'TUNNEL_ID=%s\n' "$CF_TUNNEL_ID"
+    printf 'TUNNEL_NAME=%s\n' "$CF_TUNNEL_NAME"
+    printf 'HOSTNAME=%s\n' "$CF_TUNNEL_HOSTNAME"
+    printf 'SERVICE_USER=%s\n' "$CF_TUNNEL_SERVICE_USER"
+    printf 'CREDENTIALS_FILE=%s\n' "$CF_TUNNEL_CREDENTIALS_FILE"
+  ) > "$temporary_file"
+  sudo_cmd install -d -o "$CF_TUNNEL_SERVICE_USER" -g "$service_group" -m 700 "$CF_TUNNEL_DIR"
+  sudo_cmd install -o "$CF_TUNNEL_SERVICE_USER" -g "$service_group" -m 600 "$temporary_file" "$CF_TUNNEL_SETTINGS_FILE"
+  rm -f "$temporary_file"
+  state_set "CLOUDFLARE_TUNNEL_ENABLED" "true"
+}
+
+route_cloudflare_hostname() {
+  if ! run_cloudflared_as_service_user "$CF_TUNNEL_SERVICE_USER" "$CLOUDFLARED_FILE" tunnel route dns "$CF_TUNNEL_ID" "$CF_TUNNEL_HOSTNAME"; then
+    warn "Cloudflare did not create DNS route for $CF_TUNNEL_HOSTNAME. Check that the domain is active in this Cloudflare account and that the hostname is unused."
+    return 1
+  fi
+  ok "Cloudflare DNS route created: $CF_TUNNEL_HOSTNAME"
+}
+
+write_cloudflare_tunnel_config() {
+  local service_group temporary_file local_port
+
+  load_cloudflare_tunnel_settings
+  [ -s "$CF_TUNNEL_CREDENTIALS_FILE" ] || \
+    die "Cloudflare tunnel credentials are missing: $CF_TUNNEL_CREDENTIALS_FILE"
+  service_group="$(id -gn "$CF_TUNNEL_SERVICE_USER" 2>/dev/null || printf '%s' "$CF_TUNNEL_SERVICE_USER")"
+  local_port="$(configured_lavalink_port)"
+  temporary_file="$(mktemp)"
+  (
+    umask 077
+    cat <<EOF
+tunnel: $CF_TUNNEL_ID
+credentials-file: $CF_TUNNEL_CREDENTIALS_FILE
+
+ingress:
+  - hostname: $CF_TUNNEL_HOSTNAME
+    service: http://127.0.0.1:$local_port
+  - service: http_status:404
+EOF
+  ) > "$temporary_file"
+
+  sudo_cmd install -d -o "$CF_TUNNEL_SERVICE_USER" -g "$service_group" -m 700 "$CF_TUNNEL_DIR"
+  sudo_cmd install -o "$CF_TUNNEL_SERVICE_USER" -g "$service_group" -m 600 "$temporary_file" "$CF_TUNNEL_CONFIG_FILE"
+  rm -f "$temporary_file"
+  run_cloudflared_as_service_user "$CF_TUNNEL_SERVICE_USER" "$CLOUDFLARED_FILE" tunnel --config "$CF_TUNNEL_CONFIG_FILE" ingress validate >/dev/null || \
+    die "The generated Cloudflare Tunnel ingress configuration is invalid."
+}
+
+managed_cloudflare_tunnel_service_file() {
+  printf '/etc/systemd/system/%s.service\n' "$TUNNEL_SERVICE_NAME"
+}
+
+ensure_cloudflare_tunnel_runtime() {
+  local service_file
+
+  cloudflare_tunnel_is_enabled || return 0
+  command -v systemctl >/dev/null 2>&1 || die "systemd is required to run Cloudflare Tunnel automatically."
+  ensure_cloudflared
+  write_cloudflare_tunnel_config
+  service_file="$(managed_cloudflare_tunnel_service_file)"
+  if [ -f "$service_file" ] && ! sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file"; then
+    die "Refusing to overwrite unmanaged Cloudflare Tunnel service: $service_file"
+  fi
+
+  sudo_cmd tee "$service_file" >/dev/null <<EOF
+[Unit]
+Description=Cloudflare Tunnel for Lavalink
+After=network-online.target
+Wants=network-online.target
+
+$MANAGED_SERVICE_MARKER
+
+[Service]
+Type=simple
+User=$CF_TUNNEL_SERVICE_USER
+Group=$(id -gn "$CF_TUNNEL_SERVICE_USER" 2>/dev/null || printf '%s' "$CF_TUNNEL_SERVICE_USER")
+ExecStart=$CLOUDFLARED_FILE tunnel --config $CF_TUNNEL_CONFIG_FILE run $CF_TUNNEL_ID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  sudo_cmd systemctl daemon-reload
+  sudo_cmd systemctl enable "$TUNNEL_SERVICE_NAME" >/dev/null
+  sudo_cmd systemctl restart "$TUNNEL_SERVICE_NAME"
+  sudo_cmd systemctl is-active --quiet "$TUNNEL_SERVICE_NAME" || \
+    die "Cloudflare Tunnel could not start; inspect: sudo journalctl -u $TUNNEL_SERVICE_NAME -n 100"
+  ok "Cloudflare Tunnel is running for https://$CF_TUNNEL_HOSTNAME"
+}
+
+disable_managed_cloudflare_tunnel_runtime() {
+  local service_file
+  service_file="$(managed_cloudflare_tunnel_service_file)"
+  [ -f "$service_file" ] || return 0
+  if ! sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file"; then
+    warn "Keeping $service_file because it is not managed by this setup."
+    return 0
+  fi
+  command -v systemctl >/dev/null 2>&1 || return 0
+  sudo_cmd systemctl disable --now "$TUNNEL_SERVICE_NAME" >/dev/null 2>&1 || true
+}
+
+remove_managed_cloudflare_tunnel() {
+  local service_file service_home
+  service_file="$(managed_cloudflare_tunnel_service_file)"
+
+  if [ -f "$service_file" ] && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file"; then
+    info "Stopping and removing managed $TUNNEL_SERVICE_NAME systemd service..."
+    command -v systemctl >/dev/null 2>&1 && sudo_cmd systemctl disable --now "$TUNNEL_SERVICE_NAME" >/dev/null 2>&1 || true
+    sudo_cmd rm -f "$service_file"
+  fi
+  if [ -d "$CF_TUNNEL_DIR" ]; then
+    sudo_cmd rm -rf -- "$CF_TUNNEL_DIR"
+  fi
+  if cloudflare_tunnel_profile_is_saved; then
+    service_home="$(cloudflare_service_user_home "$CF_TUNNEL_SERVICE_USER")"
+    if [ "$CF_TUNNEL_CREDENTIALS_FILE" = "$service_home/.cloudflared/$CF_TUNNEL_ID.json" ]; then
+      sudo_cmd rm -f -- "$CF_TUNNEL_CREDENTIALS_FILE"
+    else
+      warn "Keeping an unexpected Cloudflare credentials path: $CF_TUNNEL_CREDENTIALS_FILE"
+    fi
+  fi
+  sudo_cmd rm -f "$CF_TUNNEL_SETTINGS_FILE"
+  if command -v systemctl >/dev/null 2>&1; then
+    sudo_cmd systemctl daemon-reload
+  fi
+  warn "The remote Cloudflare Tunnel and DNS record are kept in your Cloudflare account; delete them in the Cloudflare dashboard if they are no longer needed."
+}
+
+configure_optional_cloudflare_tunnel() {
+  local mode="${1:-initial}" configure_tunnel service_user service_home hostname tunnel_name
+  local existing_profile=false previous_hostname=""
+
+  header "Optional Cloudflare Tunnel"
+  if cloudflare_tunnel_profile_is_saved; then
+    existing_profile=true
+    previous_hostname="$CF_TUNNEL_HOSTNAME"
+    if cloudflare_tunnel_is_enabled; then
+      ok "A saved Cloudflare Tunnel is enabled for https://$CF_TUNNEL_HOSTNAME"
+    else
+      warn "A saved Cloudflare Tunnel exists but is currently OFF."
+    fi
+    if [ "$mode" != "replace" ]; then
+      info "Choose menu option 8 to turn it on/off or replace its hostname."
+      return 0
+    fi
+    info "The existing tunnel will be kept; enter a new hostname to route it through the same tunnel."
+    warn "Any older Cloudflare CNAME is kept; remove it manually from Cloudflare DNS if it is no longer needed."
+  else
+    if [ "$mode" = "replace" ]; then
+      info "No saved Cloudflare Tunnel exists yet; the details below will create one."
+    else
+      read_tty "Set up a Cloudflare Tunnel for public Lavalink access? [y/N]: "
+      configure_tunnel="${REPLY:-N}"
+      case "$configure_tunnel" in
+        y|Y|yes|YES) ;;
+        n|N|no|NO|'')
+          state_set "CLOUDFLARE_TUNNEL_ENABLED" "false"
+          info "No Cloudflare Tunnel will be used."
+          return 0
+          ;;
+        *) warn "Please answer y or n."; return 0 ;;
+      esac
+    fi
+  fi
+
+  ensure_cloudflared
+  if [ "$existing_profile" = true ]; then
+    service_user="$CF_TUNNEL_SERVICE_USER"
+  else
+    service_user="$(installation_service_user)"
+  fi
+  service_home="$(cloudflare_service_user_home "$service_user")"
+  ensure_cloudflare_login "$service_user" "$service_home"
+
+  info "The domain must already be an active Cloudflare zone. This setup creates its CNAME automatically; do not create a competing DNS record."
+  read_tty "Public Lavalink hostname (for example lavalink.example.com): "
+  [ -n "$REPLY" ] || { warn "Cloudflare Tunnel setup cancelled; hostname is required."; return 0; }
+  hostname="$(normalise_cloudflare_hostname "$REPLY")"
+
+  if [ "$existing_profile" = true ]; then
+    CF_TUNNEL_HOSTNAME="$hostname"
+  else
+    tunnel_name="$(cloudflare_tunnel_name_for_hostname "$hostname")"
+    create_cloudflare_tunnel "$service_user" "$service_home" "$tunnel_name" || return 0
+    CF_TUNNEL_HOSTNAME="$hostname"
+    save_cloudflare_tunnel_settings
+  fi
+
+  if ! route_cloudflare_hostname; then
+    if [ "$existing_profile" = true ]; then
+      CF_TUNNEL_HOSTNAME="$previous_hostname"
+      warn "The saved tunnel hostname was not changed. Fix the DNS/zone issue, then choose menu option 8 and 'replace' again."
+    else
+      state_set "CLOUDFLARE_TUNNEL_ENABLED" "false"
+      warn "The new tunnel profile was kept but left OFF. Use menu option 8 and 'replace' after fixing the DNS/zone issue."
+    fi
+    return 0
+  fi
+  save_cloudflare_tunnel_settings
+  ensure_cloudflare_tunnel_runtime
+  ok "Use this Lavalink node in the bot: host $CF_TUNNEL_HOSTNAME, port 443, secure true."
+  warn "Cloudflare Tunnel only needs outbound connectivity. After testing, close inbound TCP $(configured_lavalink_port) in your VPS firewall/provider if it is still open."
+}
+
+manage_saved_cloudflare_tunnel() {
+  local action
+
+  header "Manage Cloudflare Tunnel"
+  if cloudflare_tunnel_profile_is_saved; then
+    show_cloudflare_tunnel_menu_status
+  else
+    warn "No Cloudflare Tunnel is saved yet. Choose replace to create one."
+  fi
+
+  read_tty "Cloudflare Tunnel action [on/off/replace] (Enter to cancel): "
+  action="${REPLY:-}"
+  case "$action" in
+    on|ON)
+      if ! cloudflare_tunnel_profile_is_saved; then
+        warn "No saved Cloudflare Tunnel exists. Choose replace to create one first."
+        return
+      fi
+      state_set "CLOUDFLARE_TUNNEL_ENABLED" "true"
+      ensure_cloudflare_tunnel_runtime
+      ok "Cloudflare Tunnel is ON."
+      ;;
+    off|OFF)
+      if ! cloudflare_tunnel_profile_is_saved; then
+        warn "No saved Cloudflare Tunnel exists to turn off."
+        return
+      fi
+      state_set "CLOUDFLARE_TUNNEL_ENABLED" "false"
+      disable_managed_cloudflare_tunnel_runtime
+      ok "Cloudflare Tunnel is OFF; its hostname and credentials remain saved."
+      ;;
+    replace|REPLACE)
+      configure_optional_cloudflare_tunnel replace
+      ;;
+    '') info "Cloudflare Tunnel settings unchanged." ;;
+    *) warn "Enter on, off, or replace." ;;
+  esac
+}
+
 installation_service_user() {
   local service_user
   service_user="$(stat -c '%U' "$SCRIPT_DIR" 2>/dev/null || printf '%s' "${SUDO_USER:-$USER}")"
@@ -1136,6 +1584,9 @@ EOF
   sudo_cmd systemctl daemon-reload
   sudo_cmd systemctl enable "$SERVICE_NAME"
   sudo_cmd systemctl restart "$SERVICE_NAME"
+  if cloudflare_tunnel_is_enabled; then
+    ensure_cloudflare_tunnel_runtime
+  fi
   sudo_cmd systemctl status "$SERVICE_NAME" --no-pager
   follow_systemd_logs
 }
@@ -1300,8 +1751,9 @@ remove_lavalink() {
     return
   fi
 
-  warn "This removes $SCRIPT_DIR, its Lavalink files, managed systemd service, and managed SOCKS5 routing."
+  warn "This removes $SCRIPT_DIR, its Lavalink files, managed systemd services, SOCKS5 routing, and local Cloudflare Tunnel credentials."
   warn "It removes only Java and redsocks packages recorded as installed by this setup script."
+  warn "The remote Cloudflare Tunnel and its DNS record are not deleted automatically."
   read_tty "Remove this Lavalink setup? [y/N]: "
   case "${REPLY:-N}" in
     y|Y|yes|YES) ;;
@@ -1313,6 +1765,7 @@ remove_lavalink() {
 
   remove_managed_systemd_service
   remove_managed_proxy
+  remove_managed_cloudflare_tunnel
   remove_tracked_packages "PROXY_CREATED_PACKAGE" "redsocks proxy packages"
   remove_tracked_java
 
@@ -1339,12 +1792,14 @@ main() {
       configure_application
       migrate_ytdlp_compatibility_config
       configure_optional_proxy
+      configure_optional_cloudflare_tunnel
     fi
 
     while true; do
       echo
       info "Current source mode: $(mode_label)"
       show_proxy_menu_status
+      show_cloudflare_tunnel_menu_status
       echo "1) Install / update and start systemd service"
       echo "2) Run Lavalink test"
       echo "3) View Lavalink systemd logs"
@@ -1352,7 +1807,8 @@ main() {
       echo "5) Stop Lavalink systemd service"
       echo "6) Uninstall Lavalink"
       echo "7) Manage SOCKS5 proxy (on/off/replace)"
-      echo "8) Back to setup menu"
+      echo "8) Manage Cloudflare Tunnel (on/off/replace)"
+      echo "9) Back to setup menu"
       echo "0) Exit"
       read_tty "Choose: "
       choice="$REPLY"
@@ -1365,9 +1821,10 @@ main() {
         5) stop_systemd ;;
         6) remove_lavalink ;;
         7) manage_saved_proxy ;;
-        8) break ;;
+        8) manage_saved_cloudflare_tunnel ;;
+        9) break ;;
         0) exit 0 ;;
-        *) warn "Please choose a number from 0 to 8." ;;
+        *) warn "Please choose a number from 0 to 9." ;;
       esac
     done
   done

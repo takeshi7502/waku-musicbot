@@ -11,10 +11,15 @@ package-lock.json
 Lavalink.jar
 application.yml
 application_server.yml
+application.yml.*-backup-*
 .lavalink-setup-state*
 .lavalink-socks5-proxy
+.lavalink-cloudflare-tunnel
+.cloudflared/
+bin/cloudflared
 plugins/
 logs/
+tmp/
 *.log
 *.jar
 !status-plugin/gradle/wrapper/gradle-wrapper.jar
