@@ -1879,6 +1879,7 @@ apply_saved_proxy_state() {
       # Stop the old unit before reloading its dependencies. A restart of a
       # still-running unit can pull its previously required proxy services
       # back in, even after the unit file was rewritten.
+      retire_legacy_lavalink_proxy_dropin "/etc/systemd/system/$SERVICE_NAME.service.d/10-egress-socks.conf"
       if [ "$was_active" = true ]; then
         sudo_cmd systemctl stop "$SERVICE_NAME"
       fi
@@ -2041,6 +2042,10 @@ install_systemd() {
     ensure_proxy_runtime "$service_user"
     systemd_dependencies=$'Requires=redsocks-lavalink.service lavalink-egress-rules.service\nAfter=redsocks-lavalink.service lavalink-egress-rules.service'
   else
+    retire_legacy_lavalink_proxy_dropin "/etc/systemd/system/$SERVICE_NAME.service.d/10-egress-socks.conf"
+    if sudo_cmd systemctl is-active --quiet "$SERVICE_NAME"; then
+      sudo_cmd systemctl stop "$SERVICE_NAME"
+    fi
     disable_managed_proxy_runtime
     verify_proxy_runtime_is_off
   fi
@@ -2072,8 +2077,21 @@ WantedBy=multi-user.target
 EOF
 
   sudo_cmd systemctl daemon-reload
+  if proxy_is_enabled; then
+    verify_loaded_lavalink_proxy_dependencies true
+  else
+    verify_loaded_lavalink_proxy_dependencies false
+  fi
   sudo_cmd systemctl enable "$SERVICE_NAME"
   sudo_cmd systemctl restart "$SERVICE_NAME"
+  if ! proxy_is_enabled; then
+    if proxy_redirection_rule_is_active || proxy_any_runtime_service_is_active; then
+      sudo_cmd systemctl stop "$SERVICE_NAME" || true
+      disable_managed_proxy_runtime
+      die "Lavalink startup reactivated proxy routing despite the OFF setting. Inspect: sudo systemctl cat $SERVICE_NAME"
+    fi
+    verify_proxy_runtime_is_off
+  fi
   if cloudflare_tunnel_is_enabled; then
     ensure_cloudflare_tunnel_runtime
   elif ! disable_managed_cloudflare_tunnel_runtime; then
@@ -2081,6 +2099,34 @@ EOF
   fi
   sudo_cmd systemctl status "$SERVICE_NAME" --no-pager
   follow_systemd_logs
+}
+
+retire_legacy_lavalink_proxy_dropin() {
+  local dropin_file="$1"
+  local backup_file
+
+  [ -e "$dropin_file" ] || return 0
+  [ -f "$dropin_file" ] && [ ! -L "$dropin_file" ] || \
+    die "Unexpected Lavalink proxy drop-in: $dropin_file. Inspect it before changing proxy settings."
+
+  # Older/manual setups can leave this dependency-only drop-in behind. It
+  # overrides the main unit even after the script removes its Requires line.
+  # Retire only the exact proxy dependency configuration, never other edits.
+  if ! sudo_cmd awk '
+    /^[[:space:]]*$/ || /^[[:space:]]*#/ { next }
+    /^\[Unit\]$/ { unit++; next }
+    /^Requires=redsocks-lavalink\.service lavalink-egress-rules\.service$/ { requires++; next }
+    /^After=redsocks-lavalink\.service lavalink-egress-rules\.service$/ { after++; next }
+    { invalid = 1 }
+    END { if (invalid || unit != 1 || requires != 1 || after != 1) exit 1 }
+  ' "$dropin_file"; then
+    die "Proxy drop-in $dropin_file contains other settings; keeping it untouched. Inspect: sudo systemctl cat $SERVICE_NAME"
+  fi
+
+  backup_file="$dropin_file.disabled-by-setup-$(date +%s)-$$"
+  [ ! -e "$backup_file" ] || die "Backup target already exists: $backup_file"
+  sudo_cmd mv -- "$dropin_file" "$backup_file"
+  ok "Retired legacy proxy dependency drop-in; backup: $backup_file"
 }
 
 update_lavalink_proxy_dependencies() {
