@@ -1874,19 +1874,28 @@ apply_saved_proxy_state() {
       ensure_proxy_runtime "$service_user"
       update_lavalink_proxy_dependencies true "$unit_file"
       sudo_cmd systemctl daemon-reload
+      verify_loaded_lavalink_proxy_dependencies true
     else
-      # Remove the Lavalink dependency before stopping proxy units; otherwise
-      # systemd may stop the player as a dependent before we can restart it.
+      # Stop the old unit before reloading its dependencies. A restart of a
+      # still-running unit can pull its previously required proxy services
+      # back in, even after the unit file was rewritten.
+      if [ "$was_active" = true ]; then
+        sudo_cmd systemctl stop "$SERVICE_NAME"
+      fi
       update_lavalink_proxy_dependencies false "$unit_file"
       sudo_cmd systemctl daemon-reload
       disable_managed_proxy_runtime
       verify_proxy_runtime_is_off
+      verify_loaded_lavalink_proxy_dependencies false
     fi
 
     if [ "$was_active" = true ]; then
-      sudo_cmd systemctl restart "$SERVICE_NAME"
+      if proxy_is_enabled; then
+        sudo_cmd systemctl restart "$SERVICE_NAME"
+      else
+        sudo_cmd systemctl start "$SERVICE_NAME"
+      fi
       sudo_cmd systemctl is-active --quiet "$SERVICE_NAME" || die "Lavalink did not come back after applying the proxy setting. Inspect: sudo journalctl -u $SERVICE_NAME -n 100"
-      ok "Restarted Lavalink so new connections use the updated egress path."
     else
       info "Lavalink was already stopped; its unit configuration was updated without starting it."
     fi
@@ -1894,7 +1903,16 @@ apply_saved_proxy_state() {
     if proxy_is_enabled; then
       proxy_redirection_rule_is_active || die "The proxy setting is ON but its iptables routing rule is not active."
     else
+      if proxy_redirection_rule_is_active || proxy_any_runtime_service_is_active; then
+        sudo_cmd systemctl stop "$SERVICE_NAME" || true
+        disable_managed_proxy_runtime
+        verify_proxy_runtime_is_off
+        die "Lavalink startup reactivated proxy routing despite the OFF setting. Inspect systemd drop-ins and dependencies for $SERVICE_NAME."
+      fi
       verify_proxy_runtime_is_off
+    fi
+    if [ "$was_active" = true ]; then
+      ok "Lavalink was started with the updated proxy setting."
     fi
     return 0
   fi
@@ -2100,6 +2118,24 @@ update_lavalink_proxy_dependencies() {
   else
     if sudo_cmd grep -Fqx 'Requires=redsocks-lavalink.service lavalink-egress-rules.service' "$unit_file"; then
       die "The Lavalink unit still requires proxy services after turning the proxy OFF."
+    fi
+  fi
+}
+
+verify_loaded_lavalink_proxy_dependencies() {
+  local enabled="$1" loaded_dependencies
+  loaded_dependencies="$(sudo_cmd systemctl show -p Requires -p Wants --value "$SERVICE_NAME")" || \
+    die "Could not inspect the loaded Lavalink systemd dependencies."
+
+  if [ "$enabled" = true ]; then
+    [[ "$loaded_dependencies" =~ (^|[[:space:]])redsocks-lavalink\.service($|[[:space:]]) ]] || \
+      die "Lavalink's loaded systemd unit does not require redsocks."
+    [[ "$loaded_dependencies" =~ (^|[[:space:]])lavalink-egress-rules\.service($|[[:space:]]) ]] || \
+      die "Lavalink's loaded systemd unit does not require its proxy routing rules."
+  else
+    if [[ "$loaded_dependencies" =~ (^|[[:space:]])redsocks-lavalink\.service($|[[:space:]]) ]] \
+      || [[ "$loaded_dependencies" =~ (^|[[:space:]])lavalink-egress-rules\.service($|[[:space:]]) ]]; then
+      die "Lavalink's loaded systemd unit still pulls in proxy services after turning the proxy OFF. Inspect: sudo systemctl cat $SERVICE_NAME"
     fi
   fi
 }
