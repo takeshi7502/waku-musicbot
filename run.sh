@@ -42,6 +42,7 @@ SETUP_RAW_BASE="https://raw.githubusercontent.com/takeshi7502/waku-musicbot/lava
 
 SETUP_MODE="plugin"
 SETUP_MANAGEMENT_ONLY=false
+MODE_SWITCHED=false
 PROXY_ENABLED=false
 PROXY_URI=""
 PROXY_HOST=""
@@ -187,7 +188,7 @@ detect_existing_config_mode() {
 }
 
 select_setup_mode() {
-  local selected_mode
+  local selected_mode existing_mode=""
 
   header "Choose Lavalink source mode"
   echo "1) youtube-source plugin (legacy configuration)"
@@ -195,6 +196,7 @@ select_setup_mode() {
   echo "3) Manage the current Lavalink setup (do not change mode or configuration)"
   read_tty "Choose [1]: "
   SETUP_MANAGEMENT_ONLY=false
+  MODE_SWITCHED=false
   case "${REPLY:-1}" in
     1) selected_mode="plugin" ;;
     2) selected_mode="ytdlp" ;;
@@ -211,12 +213,31 @@ select_setup_mode() {
       return 1
       ;;
   esac
+  if [ "$SETUP_MANAGEMENT_ONLY" != true ] && [ -f "$CONFIG_FILE" ]; then
+    existing_mode="$(detect_existing_config_mode)"
+    [ "$existing_mode" = "$selected_mode" ] || MODE_SWITCHED=true
+  fi
   set_setup_mode "$selected_mode"
   if [ "$SETUP_MANAGEMENT_ONLY" = true ]; then
     ok "Managing current mode: $(mode_label)"
   else
     ok "Selected mode: $(mode_label)"
   fi
+}
+
+restart_running_service_after_mode_switch() {
+  [ "$MODE_SWITCHED" = true ] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  if ! systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+    info "Source mode changed. Lavalink service is not running, so it was not restarted."
+    return 0
+  fi
+
+  info "Source mode changed while $SERVICE_NAME is running; restarting it now..."
+  sudo_cmd systemctl restart "$SERVICE_NAME"
+  sudo_cmd systemctl is-active --quiet "$SERVICE_NAME" || \
+    die "Lavalink could not restart after the source mode change. Inspect: sudo journalctl -u $SERVICE_NAME -n 100"
+  ok "Lavalink restarted with $(mode_label)."
 }
 
 ensure_java() {
@@ -2018,6 +2039,7 @@ main() {
       migrate_ytdlp_compatibility_config
       configure_optional_proxy
       configure_optional_cloudflare_tunnel
+      restart_running_service_after_mode_switch
     fi
 
     while true; do

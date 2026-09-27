@@ -90,7 +90,9 @@ Nếu chọn mode khác với `application.yml` hiện tại, script tự backup
 giữ nguyên port cùng password. Khi chuyển từ mode 1 sang mode 2, JAR
 `youtube-source` cũ được xoá; chiều ngược lại, binary `yt-dlp` cũ được xoá.
 Proxy HTTP/SOCKS5 đã lưu được giữ nguyên. Thêm lại OAuth/Spotify hoặc các tuỳ chỉnh
-riêng từ file backup nếu cần, rồi chọn mục `1` để restart Lavalink với mode mới.
+riêng từ file backup nếu cần. Nếu `lavalink.service` đang chạy khi đổi mode,
+script tự restart service ngay với mode mới; nếu service đang dừng, chọn mục `1`
+để chạy nó.
 Mục `9` trong menu service quay lại màn hình chọn mode 1/2. Khi gỡ sạch ở mục
 `6`, chỉ cần xác nhận `y`; Enter hoặc bất kỳ lựa chọn khác đều huỷ thao tác.
 
