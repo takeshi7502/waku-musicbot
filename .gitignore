@@ -15,6 +15,7 @@ application.yml.*-backup-*
 .lavalink-setup-state*
 .lavalink-socks5-proxy
 .lavalink-cloudflare-tunnel
+.lavalink-mode-assets/
 .cloudflared/
 bin/cloudflared
 plugins/

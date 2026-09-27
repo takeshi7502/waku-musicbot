@@ -26,6 +26,12 @@ JAR_FILE="$SCRIPT_DIR/Lavalink.jar"
 PLUGIN_DIR="$SCRIPT_DIR/plugins"
 BIN_DIR="$SCRIPT_DIR/bin"
 YTDLP_FILE="$BIN_DIR/yt-dlp"
+# youtube-source must not stay in the active plugins directory in mode 2,
+# otherwise Lavalink loads it even though that mode is intended to be yt-dlp
+# only. Keep it here while mode 2 is active so switching back never needs a
+# second download.
+MODE_ASSET_DIR="$SCRIPT_DIR/.lavalink-mode-assets"
+YOUTUBE_PLUGIN_CACHE_DIR="$MODE_ASSET_DIR/youtube-source"
 CF_TUNNEL_DIR="$SCRIPT_DIR/.cloudflared"
 CF_TUNNEL_CONFIG_FILE="$CF_TUNNEL_DIR/config.yml"
 CF_TUNNEL_SETTINGS_FILE="$SCRIPT_DIR/.lavalink-cloudflare-tunnel"
@@ -238,6 +244,7 @@ restart_running_service_after_mode_switch() {
   sudo_cmd systemctl is-active --quiet "$SERVICE_NAME" || \
     die "Lavalink could not restart after the source mode change. Inspect: sudo journalctl -u $SERVICE_NAME -n 100"
   ok "Lavalink restarted with $(mode_label)."
+  follow_systemd_logs
 }
 
 ensure_java() {
@@ -405,6 +412,30 @@ latest_youtube_plugin_url() {
   printf '%s\n' "$url"
 }
 
+restore_cached_youtube_plugin() {
+  local plugin_file
+
+  compgen -G "$YOUTUBE_PLUGIN_CACHE_DIR/youtube-plugin-*.jar" >/dev/null || return 1
+  mkdir -p "$PLUGIN_DIR"
+  for plugin_file in "$YOUTUBE_PLUGIN_CACHE_DIR"/youtube-plugin-*.jar; do
+    mv -f -- "$plugin_file" "$PLUGIN_DIR/"
+  done
+  rmdir "$YOUTUBE_PLUGIN_CACHE_DIR" 2>/dev/null || true
+  rmdir "$MODE_ASSET_DIR" 2>/dev/null || true
+  ok "Restored the cached mode-1 youtube-source plugin."
+}
+
+park_youtube_plugin_for_ytdlp_mode() {
+  local plugin_file
+
+  compgen -G "$PLUGIN_DIR/youtube-plugin-*.jar" >/dev/null || return 0
+  mkdir -p "$YOUTUBE_PLUGIN_CACHE_DIR"
+  for plugin_file in "$PLUGIN_DIR"/youtube-plugin-*.jar; do
+    mv -f -- "$plugin_file" "$YOUTUBE_PLUGIN_CACHE_DIR/"
+  done
+  ok "Stored the mode-1 youtube-source plugin for a later switch back."
+}
+
 download_missing_runtime() {
   local url ytdlp_url
 
@@ -422,6 +453,8 @@ download_missing_runtime() {
       mkdir -p "$PLUGIN_DIR"
       if compgen -G "$PLUGIN_DIR/youtube-plugin-*.jar" >/dev/null; then
         ok "youtube-source plugin already exists; keeping the current version"
+      elif restore_cached_youtube_plugin; then
+        :
       else
         url="$(latest_youtube_plugin_url)"
         download_file "$url" "$PLUGIN_DIR/$(basename "$url")"
@@ -570,18 +603,13 @@ configure_application() {
   state_set "SETUP_MODE" "$SETUP_MODE"
   ok "Created application.yml from $(basename "$TEMPLATE_FILE")"
   if [ -n "${existing_mode:-}" ] && [ "$existing_mode" != "$SETUP_MODE" ]; then
-    case "$existing_mode:$SETUP_MODE" in
-      plugin:ytdlp)
-        rm -f -- "$PLUGIN_DIR"/youtube-plugin-*.jar
-        ok "Removed the mode-1 youtube-source plugin JAR."
-        ;;
-      ytdlp:plugin)
-        rm -f -- "$YTDLP_FILE"
-        rmdir "$BIN_DIR" 2>/dev/null || true
-        ok "Removed the mode-2 yt-dlp binary."
-        ;;
-    esac
-    warn "If Lavalink is running, choose menu option 1 to restart it with the new mode."
+    info "Mode-specific runtime files are kept locally for future switches."
+  fi
+  if [ "$SETUP_MODE" = ytdlp ]; then
+    # Keep youtube-source out of ./plugins while using yt-dlp mode. Lavalink
+    # loads every JAR in that directory, so merely disabling it in YAML is not
+    # enough to guarantee mode 2 remains yt-dlp-only.
+    park_youtube_plugin_for_ytdlp_mode
   fi
   if [ "$SETUP_MODE" = plugin ]; then
     warn "Before starting, add your YouTube OAuth refresh token and Spotify credentials to application.yml if you use those sources."
@@ -1881,6 +1909,7 @@ remove_lavalink_runtime_files() {
     "$CONFIG_FILE" \
     "$SCRIPT_DIR/application_server.yml" \
     "$PLUGIN_DIR" \
+    "$MODE_ASSET_DIR" \
     "$SCRIPT_DIR/logs" \
     "$SETUP_STATE_FILE" \
     "$PROXY_SETTINGS_FILE"; do

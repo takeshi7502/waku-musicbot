@@ -87,12 +87,14 @@ Cloudflare account để tránh tự ý xóa tài nguyên trên account.
 
 Nếu chọn mode khác với `application.yml` hiện tại, script tự backup file cũ thành
 `application.yml.<mode>-backup-<timestamp>`, tạo lại cấu hình theo mode mới và
-giữ nguyên port cùng password. Khi chuyển từ mode 1 sang mode 2, JAR
-`youtube-source` cũ được xoá; chiều ngược lại, binary `yt-dlp` cũ được xoá.
-Proxy HTTP/SOCKS5 đã lưu được giữ nguyên. Thêm lại OAuth/Spotify hoặc các tuỳ chỉnh
-riêng từ file backup nếu cần. Nếu `lavalink.service` đang chạy khi đổi mode,
-script tự restart service ngay với mode mới; nếu service đang dừng, chọn mục `1`
-để chạy nó.
+giữ nguyên port cùng password. Binary `yt-dlp` luôn được giữ lại. JAR
+`youtube-source` được cất trong cache của setup khi chạy mode 2 (để Lavalink
+không load nó), sau đó tự khôi phục khi quay lại mode 1; do đó không phải tải
+lại runtime khi đổi qua lại. Proxy HTTP/SOCKS5 đã lưu được giữ nguyên. Thêm lại
+OAuth/Spotify hoặc các tuỳ chỉnh riêng từ file backup nếu cần. Nếu
+`lavalink.service` đang chạy khi đổi mode, script tự restart service ngay với
+mode mới và mở log trực tiếp; nhấn `Ctrl+C` để quay lại menu. Nếu service đang
+dừng, chọn mục `1` để chạy nó.
 Mục `9` trong menu service quay lại màn hình chọn mode 1/2. Khi gỡ sạch ở mục
 `6`, chỉ cần xác nhận `y`; Enter hoặc bất kỳ lựa chọn khác đều huỷ thao tác.
 
