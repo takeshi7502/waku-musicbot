@@ -47,6 +47,9 @@ PROXY_HOST=""
 PROXY_PORT=""
 PROXY_USERNAME=""
 PROXY_PASSWORD=""
+PROXY_REDSOCKS_TYPE="socks5"
+PROXY_LABEL="SOCKS5"
+PROXY_AUTO_DETECT=false
 CF_TUNNEL_ID=""
 CF_TUNNEL_NAME=""
 CF_TUNNEL_HOSTNAME=""
@@ -530,41 +533,144 @@ proxy_uri_decode() {
   printf '%s' "$decoded"
 }
 
-parse_socks5_proxy() {
-  local uri="$1" authority credentials host_port encoded_username encoded_password
+proxy_uri_encode() {
+  local value="$1" encoded="" character byte index
+  local LC_ALL=C
 
-  case "$uri" in
-    socks5://*) authority="${uri#socks5://}" ;;
-    socks5h://*) authority="${uri#socks5h://}" ;;
-    *) die "Proxy must use socks5:// or socks5h://, for example socks5://user:password@host:1080." ;;
-  esac
-  [ -n "$authority" ] || die "The SOCKS5 proxy URI is empty."
-  [[ "$authority" != *['/?#']* ]] || die "Use a SOCKS5 URI without a path, query string, or fragment."
+  for ((index = 0; index < ${#value}; index += 1)); do
+    character="${value:index:1}"
+    case "$character" in
+      [A-Za-z0-9.~_-]) encoded+="$character" ;;
+      *)
+        printf -v byte '%02X' "'$character"
+        encoded+="%$byte"
+        ;;
+    esac
+  done
+  printf '%s' "$encoded"
+}
 
-  PROXY_USERNAME=""
-  PROXY_PASSWORD=""
-  if [[ "$authority" == *@* ]]; then
-    credentials="${authority%@*}"
-    host_port="${authority##*@}"
-    [[ "$credentials" == *:* ]] || die "The SOCKS5 proxy username and password must be separated with ':'."
-    encoded_username="${credentials%%:*}"
-    encoded_password="${credentials#*:}"
-    [ -n "$encoded_username" ] && [ -n "$encoded_password" ] || die "The SOCKS5 proxy username and password cannot be empty."
-    PROXY_USERNAME="$(proxy_uri_decode "$encoded_username")"
-    PROXY_PASSWORD="$(proxy_uri_decode "$encoded_password")"
-  else
-    host_port="$authority"
+parse_compact_proxy_authority() {
+  local authority="$1" compact_host compact_port compact_username compact_password compact_extra remainder
+
+  remainder="${authority#*:}"
+  if [[ "$authority" == *:* && "$remainder" != *:* ]]; then
+    PROXY_HOST="${authority%:*}"
+    PROXY_PORT="${authority##*:}"
+    PROXY_USERNAME=""
+    PROXY_PASSWORD=""
+    return
   fi
 
-  [[ "$host_port" == *:* ]] || die "The SOCKS5 proxy URI must include host:port."
-  PROXY_HOST="${host_port%:*}"
-  PROXY_PORT="${host_port##*:}"
-  [[ "$PROXY_HOST" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "The SOCKS5 proxy host must be an IPv4 address or hostname."
-  validate_port "$PROXY_PORT" || die "Invalid SOCKS5 proxy port: $PROXY_PORT"
+  IFS=':' read -r compact_host compact_port compact_username compact_password compact_extra <<< "$authority"
+  [ -n "$compact_host" ] && [ -n "$compact_port" ] \
+    && [ -n "$compact_username" ] && [ -n "$compact_password" ] \
+    && [ -z "$compact_extra" ] || \
+    die "Proxy must use scheme://user:password@host:port, host:port, or host:port:username:password."
+  PROXY_HOST="$compact_host"
+  PROXY_PORT="$compact_port"
+  PROXY_USERNAME="$compact_username"
+  PROXY_PASSWORD="$compact_password"
+}
+
+set_proxy_protocol() {
+  local scheme="$1"
+
+  case "$scheme" in
+    socks5|socks5h)
+      PROXY_REDSOCKS_TYPE="socks5"
+      PROXY_LABEL="SOCKS5"
+      ;;
+    http)
+      PROXY_REDSOCKS_TYPE="http-connect"
+      PROXY_LABEL="HTTP CONNECT"
+      ;;
+    *) die "Unsupported proxy protocol: $scheme" ;;
+  esac
+}
+
+build_proxy_uri() {
+  local scheme="$1"
+
+  if [ -n "$PROXY_USERNAME" ]; then
+    printf '%s://%s:%s@%s:%s' \
+      "$scheme" \
+      "$(proxy_uri_encode "$PROXY_USERNAME")" \
+      "$(proxy_uri_encode "$PROXY_PASSWORD")" \
+      "$PROXY_HOST" \
+      "$PROXY_PORT"
+  else
+    printf '%s://%s:%s' "$scheme" "$PROXY_HOST" "$PROXY_PORT"
+  fi
+}
+
+parse_proxy() {
+  local uri="$1" authority credentials host_port encoded_username encoded_password
+  local canonical_scheme compact_authority=false
+
+  PROXY_HOST=""
+  PROXY_PORT=""
+  PROXY_USERNAME=""
+  PROXY_PASSWORD=""
+  PROXY_AUTO_DETECT=false
+  set_proxy_protocol socks5
+
+  case "$uri" in
+    socks5://*)
+      authority="${uri#socks5://}"
+      canonical_scheme="socks5"
+      set_proxy_protocol "$canonical_scheme"
+      ;;
+    socks5h://*)
+      authority="${uri#socks5h://}"
+      canonical_scheme="socks5h"
+      set_proxy_protocol "$canonical_scheme"
+      ;;
+    http://*)
+      authority="${uri#http://}"
+      canonical_scheme="http"
+      set_proxy_protocol "$canonical_scheme"
+      ;;
+    *)
+      # Provider values normally omit their protocol. The connectivity check
+      # will detect SOCKS5 first, then HTTP CONNECT, before anything is saved.
+      authority="$uri"
+      canonical_scheme="socks5h"
+      compact_authority=true
+      PROXY_AUTO_DETECT=true
+      ;;
+  esac
+
+  [ -n "$authority" ] || die "The proxy value is empty."
+  [[ "$authority" != *['/?#']* ]] || die "Use a proxy URI without a path, query string, or fragment."
+
+  if [ "$compact_authority" = true ] || [[ "$authority" != *@* ]]; then
+    parse_compact_proxy_authority "$authority"
+    compact_authority=true
+  else
+    credentials="${authority%@*}"
+    host_port="${authority##*@}"
+    [[ "$credentials" == *:* ]] || die "The proxy username and password must be separated with ':'."
+    encoded_username="${credentials%%:*}"
+    encoded_password="${credentials#*:}"
+    [ -n "$encoded_username" ] && [ -n "$encoded_password" ] || die "The proxy username and password cannot be empty."
+    PROXY_USERNAME="$(proxy_uri_decode "$encoded_username")"
+    PROXY_PASSWORD="$(proxy_uri_decode "$encoded_password")"
+    [[ "$host_port" == *:* ]] || die "The proxy URI must include host:port."
+    PROXY_HOST="${host_port%:*}"
+    PROXY_PORT="${host_port##*:}"
+  fi
+
+  [[ "$PROXY_HOST" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "The proxy host must be an IPv4 address or hostname."
+  validate_port "$PROXY_PORT" || die "Invalid proxy port: $PROXY_PORT"
   [[ "$PROXY_USERNAME" != *['"\\;']* && "$PROXY_PASSWORD" != *['"\\;']* ]] || \
     die "For safety, percent-encoded proxy credentials may not decode to quote, backslash, or semicolon characters."
 
-  PROXY_URI="$uri"
+  if [ "$compact_authority" = false ]; then
+    PROXY_URI="$uri"
+  else
+    PROXY_URI="$(build_proxy_uri "$canonical_scheme")"
+  fi
 }
 
 load_proxy_settings() {
@@ -572,8 +678,8 @@ load_proxy_settings() {
 
   [ -f "$PROXY_SETTINGS_FILE" ] || return 1
   stored_uri="$(awk -F= '/^PROXY_URI=/ { print substr($0, 11); exit }' "$PROXY_SETTINGS_FILE")"
-  [ -n "$stored_uri" ] || die "The saved SOCKS5 proxy configuration is invalid. Remove $PROXY_SETTINGS_FILE and run setup again."
-  parse_socks5_proxy "$stored_uri"
+  [ -n "$stored_uri" ] || die "The saved proxy configuration is invalid. Remove $PROXY_SETTINGS_FILE and run setup again."
+  parse_proxy "$stored_uri"
 }
 
 proxy_profile_is_saved() {
@@ -603,25 +709,40 @@ show_proxy_menu_status() {
   local proxy_state="OFF"
 
   if ! proxy_profile_is_saved; then
-    info "SOCKS5 proxy: OFF (not configured)"
+    info "Proxy: OFF (not configured)"
     return 0
   fi
 
   if proxy_is_enabled; then
     proxy_state="ON"
   fi
-  info "SOCKS5 proxy: $proxy_state | $PROXY_URI"
+  info "Proxy: $proxy_state | $PROXY_LABEL | $PROXY_URI"
 }
 
 check_proxy_connection() {
-  local egress_ip
+  local egress_ip candidate_scheme candidate_uri
 
-  command -v curl >/dev/null 2>&1 || die "curl is required to verify a SOCKS5 proxy. Install curl, then run setup again."
-  info "Checking SOCKS5 proxy connectivity..."
+  command -v curl >/dev/null 2>&1 || die "curl is required to verify the proxy. Install curl, then run setup again."
+  if [ "$PROXY_AUTO_DETECT" = true ]; then
+    info "Detecting proxy type: trying SOCKS5, then HTTP CONNECT..."
+    for candidate_scheme in socks5h http; do
+      candidate_uri="$(build_proxy_uri "$candidate_scheme")"
+      egress_ip="$(curl -4fsS --proxy "$candidate_uri" --connect-timeout 8 --max-time 12 https://api.ipify.org 2>/dev/null)" || continue
+      [[ "$egress_ip" =~ ^[0-9A-Fa-f:.]+$ ]] || continue
+      PROXY_URI="$candidate_uri"
+      PROXY_AUTO_DETECT=false
+      set_proxy_protocol "$candidate_scheme"
+      ok "Detected $PROXY_LABEL proxy (egress IP: $egress_ip)"
+      return
+    done
+    die "The proxy could not be reached as SOCKS5 or HTTP CONNECT. Check its host, port, credentials, firewall, and HTTP CONNECT support."
+  fi
+
+  info "Checking $PROXY_LABEL proxy connectivity..."
   egress_ip="$(curl -4fsS --proxy "$PROXY_URI" --connect-timeout 10 --max-time 25 https://api.ipify.org)" || \
-    die "The SOCKS5 proxy could not reach the internet. Check its host, port, credentials, and firewall."
-  [[ "$egress_ip" =~ ^[0-9A-Fa-f:.]+$ ]] || die "The SOCKS5 proxy check returned an invalid egress address."
-  ok "SOCKS5 proxy check succeeded (egress IP: $egress_ip)"
+    die "The proxy could not reach the internet. Check its type, host, port, credentials, CONNECT support, and firewall."
+  [[ "$egress_ip" =~ ^[0-9A-Fa-f:.]+$ ]] || die "The proxy check returned an invalid egress address."
+  ok "$PROXY_LABEL proxy check succeeded (egress IP: $egress_ip)"
 }
 
 save_proxy_settings() {
@@ -640,12 +761,12 @@ save_proxy_settings() {
 configure_optional_proxy() {
   local mode="${1:-initial}" configure_proxy
 
-  header "Optional SOCKS5 proxy"
+  header "Optional HTTP / SOCKS5 proxy"
   if proxy_profile_is_saved; then
     if proxy_is_enabled; then
-      ok "A saved SOCKS5 proxy is enabled for Lavalink TCP traffic."
+      ok "A saved $PROXY_LABEL proxy is enabled for Lavalink TCP traffic."
     else
-      warn "A saved SOCKS5 proxy exists but is currently OFF."
+      warn "A saved $PROXY_LABEL proxy exists but is currently OFF."
     fi
     if [ "$mode" != "replace" ]; then
       info "Choose menu option 7 to turn it on/off or replace its URI."
@@ -655,15 +776,15 @@ configure_optional_proxy() {
   else
     PROXY_ENABLED=false
     if [ "$mode" = "replace" ]; then
-      info "No saved proxy exists yet; enter the SOCKS5 URI below to create one."
+      info "No saved proxy exists yet; enter an HTTP or SOCKS5 proxy below to create one."
     else
-      read_tty "Set up a transparent SOCKS5 proxy for Lavalink? [y/N]: "
+      read_tty "Set up a transparent HTTP / SOCKS5 proxy for Lavalink? [y/N]: "
       configure_proxy="${REPLY:-N}"
       case "$configure_proxy" in
         y|Y|yes|YES) ;;
         n|N|no|NO|'')
           state_set "PROXY_ENABLED" "false"
-          info "No SOCKS5 proxy will be used."
+          info "No proxy will be used."
           return
           ;;
         *) die "Please answer y or n." ;;
@@ -673,28 +794,28 @@ configure_optional_proxy() {
 
   # This is intentionally visible: it lets the operator verify the full URI
   # before the connectivity check. The saved file is still permission 600.
-  read_tty "SOCKS5 proxy URI (socks5://user:password@host:port): "
-  [ -n "$REPLY" ] || die "A SOCKS5 proxy URI is required when proxy setup is enabled."
-  parse_socks5_proxy "$REPLY"
+  read_tty "Proxy (host:port:user:password or URI): "
+  [ -n "$REPLY" ] || die "A proxy value is required when proxy setup is enabled."
+  parse_proxy "$REPLY"
   check_proxy_connection
   save_proxy_settings
-  ok "The SOCKS5 proxy was saved with owner-only file permissions."
+  ok "The $PROXY_LABEL proxy was saved with owner-only file permissions."
 }
 
 manage_saved_proxy() {
   local action current_state="OFF"
 
-  header "Manage saved SOCKS5 proxy"
+  header "Manage saved HTTP / SOCKS5 proxy"
   if proxy_profile_is_saved; then
     if proxy_is_enabled; then
       current_state="ON"
     fi
     info "A proxy URI is saved and its current state is $current_state."
   else
-    warn "No SOCKS5 proxy URI is saved yet. Choose replace to enter one."
+    warn "No saved proxy URI exists yet. Choose replace to enter one."
   fi
 
-  read_tty "SOCKS5 proxy action [on/off/replace] (Enter to cancel): "
+  read_tty "Proxy action [on/off/replace] (Enter to cancel): "
   action="${REPLY:-}"
   case "$action" in
     on|ON)
@@ -704,7 +825,7 @@ manage_saved_proxy() {
       fi
       state_set "PROXY_ENABLED" "true"
       PROXY_ENABLED=true
-      ok "Saved SOCKS5 proxy is ON."
+      ok "Saved $PROXY_LABEL proxy is ON."
       info "Choose option 1 to apply it and restart Lavalink."
       ;;
     off|OFF)
@@ -714,7 +835,7 @@ manage_saved_proxy() {
       fi
       state_set "PROXY_ENABLED" "false"
       PROXY_ENABLED=false
-      ok "Saved SOCKS5 proxy is OFF; its URI remains saved."
+      ok "Saved $PROXY_LABEL proxy is OFF; its URI remains saved."
       info "Choose option 1 to remove proxy routing and restart Lavalink directly."
       ;;
     replace|REPLACE)
@@ -1249,10 +1370,10 @@ is_managed_redsocks_config() {
   # covers a manually removed unit/helper without taking ownership of an
   # arbitrary proxy config.
   if [ -f "$PROXY_SETTINGS_FILE" ] \
-    && grep -Eq '^PROXY_URI=socks5h?://' "$PROXY_SETTINGS_FILE" \
+    && grep -Eq '^PROXY_URI=(socks5h?|http)://' "$PROXY_SETTINGS_FILE" \
     && sudo_cmd grep -Eq '^[[:space:]]*redirector[[:space:]]*=[[:space:]]*iptables;' "$config_file" \
     && sudo_cmd grep -Eq '^[[:space:]]*local_ip[[:space:]]*=[[:space:]]*127\.0\.0\.1;' "$config_file" \
-    && sudo_cmd grep -Eq '^[[:space:]]*type[[:space:]]*=[[:space:]]*socks5;' "$config_file"; then
+    && sudo_cmd grep -Eq '^[[:space:]]*type[[:space:]]*=[[:space:]]*(socks5|http-connect);' "$config_file"; then
     warn "Migrating a recognizable redsocks configuration paired with this setup's saved proxy."
     return 0
   fi
@@ -1322,7 +1443,7 @@ write_validated_redsocks_config() {
       printf '  local_port = %s;\n' "$REDSOCKS_LOCAL_PORT"
       printf '  ip = "%s";\n' "$escaped_host"
       printf '  port = %s;\n' "$PROXY_PORT"
-      printf '%s\n' '  type = socks5;'
+      printf '  type = %s;\n' "$PROXY_REDSOCKS_TYPE"
       [ -z "$proxy_auth_lines" ] || printf '%s\n' "$proxy_auth_lines"
       printf '%s\n' '}'
     } > "$temporary_config"
@@ -1345,12 +1466,12 @@ ensure_proxy_runtime() {
   local escaped_host escaped_username escaped_password managed_file
 
   proxy_is_enabled || return 0
-  command -v iptables >/dev/null 2>&1 || die "iptables is required for transparent SOCKS5 proxy routing."
+  command -v iptables >/dev/null 2>&1 || die "iptables is required for transparent proxy routing."
   ensure_redsocks_service_user
 
   if ! command -v redsocks >/dev/null 2>&1; then
     command -v apt-get >/dev/null 2>&1 || die "redsocks must be installed manually on this operating system."
-    info "Installing redsocks for the optional SOCKS5 proxy..."
+    info "Installing redsocks for the optional proxy..."
     before_packages="$(mktemp)"
     after_packages="$(mktemp)"
     created_packages="$(mktemp)"
@@ -1366,7 +1487,7 @@ ensure_proxy_runtime() {
   redsocks_bin="$(command -v redsocks)"
   proxy_ipv4="$(getent ahostsv4 "$PROXY_HOST" 2>/dev/null | awk 'NR == 1 { print $1 }')"
   [[ "$proxy_ipv4" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || \
-    die "Could not resolve the SOCKS5 proxy host to an IPv4 address for redsocks: $PROXY_HOST"
+    die "Could not resolve the proxy host to an IPv4 address for redsocks: $PROXY_HOST"
   escaped_host="$(escape_redsocks_value "$proxy_ipv4")"
   escaped_username="$(escape_redsocks_value "$PROXY_USERNAME")"
   escaped_password="$(escape_redsocks_value "$PROXY_PASSWORD")"
@@ -1425,7 +1546,7 @@ EOF
 
   sudo_cmd tee /etc/systemd/system/redsocks-lavalink.service >/dev/null <<EOF
 [Unit]
-Description=Redsocks bridge for Lavalink SOCKS5 egress
+Description=Redsocks bridge for Lavalink proxy egress
 After=network-online.target
 Wants=network-online.target
 
@@ -1468,7 +1589,7 @@ EOF
   sudo_cmd systemctl start lavalink-egress-rules.service
   sudo_cmd systemctl is-active --quiet redsocks-lavalink.service || die "redsocks could not start; inspect: sudo journalctl -u redsocks-lavalink -n 100"
   sudo_cmd systemctl is-active --quiet lavalink-egress-rules.service || die "Lavalink proxy rules could not start; inspect: sudo journalctl -u lavalink-egress-rules -n 100"
-  ok "Transparent SOCKS5 routing is active for TCP traffic from user $service_user; Discord UDP remains direct."
+  ok "Transparent $PROXY_LABEL routing is active for TCP traffic from user $service_user; Discord UDP remains direct."
 }
 
 run_lavalink_as_user() {
@@ -1631,12 +1752,43 @@ stop_systemd() {
   ok "Lavalink systemd service stopped"
 }
 
-is_safe_removal_directory() {
+remove_lavalink_runtime_files() {
+  local parent_dir artifact backup
+
   case "$SCRIPT_DIR" in
-    /|"$HOME") return 1 ;;
+    /|"$HOME")
+      die "Refusing to remove Lavalink files from $SCRIPT_DIR. Run the setup from a dedicated Lavalink directory instead."
+      ;;
   esac
 
-  [ "$(basename "$SCRIPT_DIR")" = "lavalink" ]
+  if [ "$(basename "$SCRIPT_DIR")" = "lavalink" ]; then
+    parent_dir="$(dirname "$SCRIPT_DIR")"
+    cd "$parent_dir"
+    sudo_cmd rm -rf -- "$SCRIPT_DIR"
+    return
+  fi
+
+  # The setup can also be run directly from a repository/WSL shared folder.
+  # Do not erase that source tree; remove every known Lavalink runtime artifact
+  # while retaining run.sh, templates, README and unrelated project files.
+  warn "Keeping setup/source files in $SCRIPT_DIR; removing its Lavalink runtime files only."
+  for artifact in \
+    "$JAR_FILE" \
+    "$CONFIG_FILE" \
+    "$SCRIPT_DIR/application_server.yml" \
+    "$PLUGIN_DIR" \
+    "$SCRIPT_DIR/logs" \
+    "$SETUP_STATE_FILE" \
+    "$PROXY_SETTINGS_FILE"; do
+    [ -e "$artifact" ] && sudo_cmd rm -rf -- "$artifact"
+  done
+  for artifact in "$YTDLP_FILE" "$CLOUDFLARED_FILE"; do
+    [ -e "$artifact" ] && sudo_cmd rm -f -- "$artifact"
+  done
+  [ -d "$BIN_DIR" ] && sudo_cmd rmdir -- "$BIN_DIR" 2>/dev/null || true
+  for backup in "$SCRIPT_DIR"/application.yml.*-backup-*; do
+    [ -e "$backup" ] && sudo_cmd rm -f -- "$backup"
+  done
 }
 
 remove_managed_systemd_service() {
@@ -1742,16 +1894,8 @@ remove_tracked_java() {
 }
 
 remove_lavalink() {
-  local parent_dir
-
   header "Remove Lavalink"
-  if ! is_safe_removal_directory; then
-    warn "Refusing to remove unsafe directory: $SCRIPT_DIR"
-    warn "Only an installation directory named 'lavalink' can be removed."
-    return
-  fi
-
-  warn "This removes $SCRIPT_DIR, its Lavalink files, managed systemd services, SOCKS5 routing, and local Cloudflare Tunnel credentials."
+  warn "This removes Lavalink runtime files in $SCRIPT_DIR, managed systemd services, proxy routing, and local Cloudflare Tunnel credentials."
   warn "It removes only Java and redsocks packages recorded as installed by this setup script."
   warn "The remote Cloudflare Tunnel and its DNS record are not deleted automatically."
   read_tty "Remove this Lavalink setup? [y/N]: "
@@ -1769,10 +1913,8 @@ remove_lavalink() {
   remove_tracked_packages "PROXY_CREATED_PACKAGE" "redsocks proxy packages"
   remove_tracked_java
 
-  parent_dir="$(dirname "$SCRIPT_DIR")"
-  cd "$parent_dir"
-  sudo_cmd rm -rf -- "$SCRIPT_DIR"
-  ok "Lavalink setup was removed."
+  remove_lavalink_runtime_files
+  ok "Lavalink runtime was removed."
   exit 0
 }
 
@@ -1806,7 +1948,7 @@ main() {
       echo "4) Restart Lavalink systemd service"
       echo "5) Stop Lavalink systemd service"
       echo "6) Uninstall Lavalink"
-      echo "7) Manage SOCKS5 proxy (on/off/replace)"
+      echo "7) Manage HTTP / SOCKS5 proxy (on/off/replace)"
       echo "8) Manage Cloudflare Tunnel (on/off/replace)"
       echo "9) Back to setup menu"
       echo "0) Exit"

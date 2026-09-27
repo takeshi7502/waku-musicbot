@@ -47,15 +47,20 @@ giá trị mới sẽ cập nhật chúng. Sau đó có thể chọn cài system
 log, restart, dừng hoặc gỡ sạch node do script cài. Port mặc định là `3333` và
 password mặc định là `takeshi.dev`.
 
-Trong lúc setup có lựa chọn proxy SOCKS5, mặc định `N`. Nếu chọn `Y`, nhập URI
-dạng `socks5://user:password@host:port`. Script kiểm tra proxy trước, lưu URI ở
+Trong lúc setup có lựa chọn proxy HTTP/SOCKS5, mặc định `N`. Nếu chọn `Y`, chỉ
+cần dán dạng provider phổ biến `host:port:username:password`. Script sẽ thử
+SOCKS5 trước, sau đó HTTP `CONNECT`, tự nhận loại hoạt động và lưu URI chuẩn.
+Vẫn có thể nhập trực tiếp `socks5://user:password@host:port` hoặc
+`http://user:password@host:port` nếu muốn chỉ định loại proxy. Script kiểm tra
+proxy trước, lưu URI ở
 `~/lavalink/.lavalink-socks5-proxy` với quyền owner-only, rồi dùng `redsocks`
 để chuyển **TCP của riêng tiến trình Lavalink** qua proxy. Những lần chạy sau tự
 dùng lại proxy đã lưu, không bắt nhập lại. Mục `7` nhận `on`, `off` hoặc
 `replace`: `off` ngừng dùng routing proxy nhưng vẫn giữ URI; `on` dùng lại URI
 đó; `replace` mới hỏi URI khác. Chọn mục `1` để áp dụng thay đổi và restart
-service. Nhờ đó yt-dlp và Java đều dùng cùng IP egress; Discord UDP vẫn đi trực
-tiếp. Proxy này dùng được cho cả hai mode. Không tự cài remote cipher, Docker,
+service. HTTP proxy phải hỗ trợ phương thức `CONNECT` tới Internet. Nhờ đó
+yt-dlp và Java đều dùng cùng IP egress; Discord UDP vẫn đi trực tiếp. Proxy này
+dùng được cho cả hai mode. Không tự cài remote cipher, Docker,
 Node.js hay IPv6 route planner. Luôn thay refresh token OAuth và Spotify
 credentials bằng dữ liệu của bạn. Không commit `application.yml` hoặc file
 `.lavalink-socks5-proxy`.
@@ -80,7 +85,7 @@ Nếu chọn mode khác với `application.yml` hiện tại, script tự backup
 `application.yml.<mode>-backup-<timestamp>`, tạo lại cấu hình theo mode mới và
 giữ nguyên port cùng password. Khi chuyển từ mode 1 sang mode 2, JAR
 `youtube-source` cũ được xoá; chiều ngược lại, binary `yt-dlp` cũ được xoá.
-Proxy SOCKS5 đã lưu được giữ nguyên. Thêm lại OAuth/Spotify hoặc các tuỳ chỉnh
+Proxy HTTP/SOCKS5 đã lưu được giữ nguyên. Thêm lại OAuth/Spotify hoặc các tuỳ chỉnh
 riêng từ file backup nếu cần, rồi chọn mục `1` để restart Lavalink với mode mới.
 Mục `9` trong menu service quay lại màn hình chọn mode 1/2. Khi gỡ sạch ở mục
 `6`, chỉ cần xác nhận `y`; Enter hoặc bất kỳ lựa chọn khác đều huỷ thao tác.
