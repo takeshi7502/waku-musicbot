@@ -42,14 +42,16 @@ PROXY_SETTINGS_FILE="$SCRIPT_DIR/.lavalink-socks5-proxy"
 PROXY_CONFIG_MARKER_FILE="/etc/redsocks-lavalink.managed"
 MANAGED_SERVICE_MARKER="# Managed by waku-musicbot Lavalink setup"
 LAVALINK_RELEASE_API="https://api.github.com/repos/lavalink-devs/Lavalink/releases/latest"
-YOUTUBE_RELEASE_API="https://api.github.com/repos/lavalink-devs/youtube-source/releases/latest"
+YOUTUBE_PLUGIN_VERSION="1.18.3"
+YOUTUBE_PLUGIN_ASSET="youtube-plugin-${YOUTUBE_PLUGIN_VERSION}.jar"
+YOUTUBE_RELEASE_API="https://api.github.com/repos/takeshi7502/youtube-source/releases/tags/${YOUTUBE_PLUGIN_VERSION}"
 YTDLP_RELEASE_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download"
 SETUP_RAW_BASE="https://raw.githubusercontent.com/takeshi7502/waku-musicbot/lavalink"
 
 SETUP_MODE="plugin"
 SETUP_MANAGEMENT_ONLY=false
 MODE_SWITCHED=false
-PROXY_ENABLED=false
+YOUTUBE_PLUGIN_UPDATED=false
 PROXY_URI=""
 PROXY_HOST=""
 PROXY_PORT=""
@@ -180,7 +182,7 @@ set_setup_mode() {
 
 mode_label() {
   case "$SETUP_MODE" in
-    plugin) printf '%s' "youtube-source plugin (legacy mode)" ;;
+    plugin) printf '%s' 'youtube-source plugin' ;;
     ytdlp) printf '%s' "LavaSrc + yt-dlp" ;;
   esac
 }
@@ -197,12 +199,13 @@ select_setup_mode() {
   local selected_mode existing_mode=""
 
   header "Choose Lavalink source mode"
-  echo "1) youtube-source plugin (legacy configuration)"
-  echo "2) LavaSrc + yt-dlp (YouTube through yt-dlp)"
-  echo "3) Manage the current Lavalink setup (do not change mode or configuration)"
+  echo "1) [1] youtube-source plugin v$YOUTUBE_PLUGIN_VERSION"
+  echo "2) [2] yt-dlp"
+  echo "3) Manage Lavalink"
   read_tty "Choose [1]: "
   SETUP_MANAGEMENT_ONLY=false
   MODE_SWITCHED=false
+  YOUTUBE_PLUGIN_UPDATED=false
   case "${REPLY:-1}" in
     1) selected_mode="plugin" ;;
     2) selected_mode="ytdlp" ;;
@@ -231,18 +234,18 @@ select_setup_mode() {
   fi
 }
 
-restart_running_service_after_mode_switch() {
-  [ "$MODE_SWITCHED" = true ] || return 0
+restart_running_service_after_setup_change() {
+  [ "$MODE_SWITCHED" = true ] || [ "$YOUTUBE_PLUGIN_UPDATED" = true ] || return 0
   command -v systemctl >/dev/null 2>&1 || return 0
   if ! systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-    info "Source mode changed. Lavalink service is not running, so it was not restarted."
+    info "Lavalink service is not running, so the updated source will load at its next start."
     return 0
   fi
 
-  info "Source mode changed while $SERVICE_NAME is running; restarting it now..."
+  info "Lavalink source changed while $SERVICE_NAME is running; restarting it now..."
   sudo_cmd systemctl restart "$SERVICE_NAME"
   sudo_cmd systemctl is-active --quiet "$SERVICE_NAME" || \
-    die "Lavalink could not restart after the source mode change. Inspect: sudo journalctl -u $SERVICE_NAME -n 100"
+    die "Lavalink could not restart after the source update. Inspect: sudo journalctl -u $SERVICE_NAME -n 100"
   ok "Lavalink restarted with $(mode_label)."
   follow_systemd_logs
 }
@@ -405,10 +408,9 @@ latest_youtube_plugin_url() {
   release_json="$(fetch_url "$YOUTUBE_RELEASE_API")" || die "Could not read YouTube plugin release metadata."
   url="$(printf '%s\n' "$release_json" \
     | sed -nE 's|^[[:space:]]*"browser_download_url":[[:space:]]*"([^"]+)"[,]?$|\1|p' \
-    | grep -E '/youtube-plugin-[^/]+\.jar$' \
-    | grep -Ev -- '-(sources|javadoc)\.jar$' \
+    | grep -F "/$YOUTUBE_PLUGIN_ASSET" \
     | head -n 1)"
-  [ -n "$url" ] || die "Could not find the latest youtube-plugin JAR."
+  [ -n "$url" ] || die "Could not find $YOUTUBE_PLUGIN_ASSET in the fork's ${YOUTUBE_PLUGIN_VERSION} release."
   printf '%s\n' "$url"
 }
 
@@ -437,7 +439,7 @@ park_youtube_plugin_for_ytdlp_mode() {
 }
 
 download_missing_runtime() {
-  local url ytdlp_url
+  local url ytdlp_url plugin_file expected_plugin="$PLUGIN_DIR/$YOUTUBE_PLUGIN_ASSET"
 
   header "Download Lavalink and plugins"
 
@@ -451,14 +453,25 @@ download_missing_runtime() {
   case "$SETUP_MODE" in
     plugin)
       mkdir -p "$PLUGIN_DIR"
-      if compgen -G "$PLUGIN_DIR/youtube-plugin-*.jar" >/dev/null; then
-        ok "youtube-source plugin already exists; keeping the current version"
-      elif restore_cached_youtube_plugin; then
-        :
+      if [ -s "$expected_plugin" ]; then
+        ok "youtube-source plugin $YOUTUBE_PLUGIN_VERSION already exists; keeping it"
+      elif [ -s "$YOUTUBE_PLUGIN_CACHE_DIR/$YOUTUBE_PLUGIN_ASSET" ]; then
+        mv -f -- "$YOUTUBE_PLUGIN_CACHE_DIR/$YOUTUBE_PLUGIN_ASSET" "$expected_plugin"
+        YOUTUBE_PLUGIN_UPDATED=true
+        ok "Restored cached youtube-source plugin $YOUTUBE_PLUGIN_VERSION"
       else
         url="$(latest_youtube_plugin_url)"
-        download_file "$url" "$PLUGIN_DIR/$(basename "$url")"
+        download_file "$url" "$expected_plugin"
+        YOUTUBE_PLUGIN_UPDATED=true
       fi
+      # Do not let Lavalink load an older youtube-source alongside 1.18.3.
+      for plugin_file in "$PLUGIN_DIR"/youtube-plugin-*.jar; do
+        [ -e "$plugin_file" ] || continue
+        if [ "$plugin_file" != "$expected_plugin" ]; then
+          rm -f -- "$plugin_file"
+          YOUTUBE_PLUGIN_UPDATED=true
+        fi
+      done
       info "LavaSrc is declared in application.yml and Lavalink downloads it automatically on first start."
       ;;
     ytdlp)
@@ -819,18 +832,16 @@ proxy_is_enabled() {
   saved_state="$(state_get "PROXY_ENABLED")"
   case "${saved_state:-true}" in
     false|off|OFF|0|no|NO)
-      PROXY_ENABLED=false
       return 1
       ;;
     *)
-      PROXY_ENABLED=true
       return 0
       ;;
   esac
 }
 
 show_proxy_menu_status() {
-  local proxy_state="OFF"
+  local proxy_state="OFF" runtime_state="not running"
 
   if ! proxy_profile_is_saved; then
     info "Proxy: OFF (not configured)"
@@ -840,7 +851,16 @@ show_proxy_menu_status() {
   if proxy_is_enabled; then
     proxy_state="ON"
   fi
-  info "Proxy: $proxy_state | $PROXY_LABEL | $PROXY_URI"
+  if proxy_redirection_rule_is_active; then
+    if proxy_runtime_services_are_active; then
+      runtime_state="active"
+    else
+      runtime_state="routing rule active, but one or more proxy services are inactive"
+    fi
+  elif proxy_any_runtime_service_is_active; then
+    runtime_state="services active, routing rule missing"
+  fi
+  info "Proxy: configured $proxy_state | runtime $runtime_state | $PROXY_LABEL $PROXY_HOST:$PROXY_PORT"
 }
 
 check_proxy_connection() {
@@ -879,7 +899,6 @@ save_proxy_settings() {
   mv "$temporary_file" "$PROXY_SETTINGS_FILE"
   chmod 600 "$PROXY_SETTINGS_FILE"
   state_set "PROXY_ENABLED" "true"
-  PROXY_ENABLED=true
 }
 
 configure_optional_proxy() {
@@ -898,7 +917,6 @@ configure_optional_proxy() {
     fi
     info "Enter the replacement URI below. It will be checked before the saved proxy is updated."
   else
-    PROXY_ENABLED=false
     if [ "$mode" = "replace" ]; then
       info "No saved proxy exists yet; enter an HTTP or SOCKS5 proxy below to create one."
     else
@@ -951,24 +969,35 @@ manage_saved_proxy() {
         warn "No saved proxy exists. Choose option 3 and enter a proxy first."
         return
       fi
+      assert_manageable_lavalink_unit_for_proxy
+      check_proxy_connection
       state_set "PROXY_ENABLED" "true"
-      PROXY_ENABLED=true
-      ok "Saved $PROXY_LABEL proxy is ON."
-      info "Choose option 1 to apply it and restart Lavalink."
+      apply_saved_proxy_state
+      if proxy_redirection_rule_is_active; then
+        ok "Saved $PROXY_LABEL proxy is ON and its runtime state has been applied."
+      else
+        ok "Saved $PROXY_LABEL proxy is ON; it will start with the next Lavalink test or systemd install."
+      fi
       ;;
     2)
       if ! proxy_profile_is_saved; then
         warn "No saved proxy exists to turn off."
         return
       fi
+      assert_manageable_lavalink_unit_for_proxy
       state_set "PROXY_ENABLED" "false"
-      PROXY_ENABLED=false
-      ok "Saved $PROXY_LABEL proxy is OFF; its URI remains saved."
-      info "Choose option 1 to remove proxy routing and restart Lavalink directly."
+      apply_saved_proxy_state
+      ok "Saved $PROXY_LABEL proxy is OFF; its routing is stopped and its URI remains saved."
       ;;
     3)
+      assert_manageable_lavalink_unit_for_proxy
       configure_optional_proxy replace
-      info "The replacement proxy is saved as ON. Choose option 1 to apply it."
+      apply_saved_proxy_state
+      if proxy_redirection_rule_is_active; then
+        ok "The replacement proxy is saved and active."
+      else
+        ok "The replacement proxy is saved; it will start with the next Lavalink test or systemd install."
+      fi
       ;;
     0|'') info "Proxy settings unchanged." ;;
     *) warn "Please choose a number from 0 to 3." ;;
@@ -1058,7 +1087,7 @@ cloudflare_tunnel_is_enabled() {
 }
 
 show_cloudflare_tunnel_menu_status() {
-  local tunnel_state="OFF" local_port
+  local tunnel_state="OFF" runtime_state="unknown" local_port
 
   if ! cloudflare_tunnel_profile_is_saved; then
     info "Cloudflare Tunnel: OFF (not configured)"
@@ -1067,8 +1096,15 @@ show_cloudflare_tunnel_menu_status() {
   if cloudflare_tunnel_is_enabled; then
     tunnel_state="ON"
   fi
+  if command -v systemctl >/dev/null 2>&1; then
+    if sudo_cmd systemctl is-active --quiet "$TUNNEL_SERVICE_NAME"; then
+      runtime_state="active"
+    else
+      runtime_state="inactive"
+    fi
+  fi
   local_port="$(configured_lavalink_port)"
-  info "Cloudflare Tunnel: $tunnel_state | https://$CF_TUNNEL_HOSTNAME -> 127.0.0.1:$local_port"
+  info "Cloudflare Tunnel: configured $tunnel_state | runtime $runtime_state | https://$CF_TUNNEL_HOSTNAME -> 127.0.0.1:$local_port"
 }
 
 cloudflare_service_user_home() {
@@ -1220,6 +1256,18 @@ managed_cloudflare_tunnel_service_file() {
   printf '/etc/systemd/system/%s.service\n' "$TUNNEL_SERVICE_NAME"
 }
 
+assert_manageable_cloudflare_tunnel_service() {
+  local service_file
+  service_file="$(managed_cloudflare_tunnel_service_file)"
+  command -v systemctl >/dev/null 2>&1 || die "systemd is required to manage Cloudflare Tunnel."
+  if [ -f "$service_file" ]; then
+    sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file" || \
+      die "Cloudflare Tunnel service is not managed by this setup; its settings were not changed."
+  elif sudo_cmd systemctl cat "$TUNNEL_SERVICE_NAME" >/dev/null 2>&1; then
+    die "A Cloudflare Tunnel service exists outside this setup directory; its settings were not changed."
+  fi
+}
+
 ensure_cloudflare_tunnel_runtime() {
   local service_file
 
@@ -1256,19 +1304,34 @@ EOF
   sudo_cmd systemctl restart "$TUNNEL_SERVICE_NAME"
   sudo_cmd systemctl is-active --quiet "$TUNNEL_SERVICE_NAME" || \
     die "Cloudflare Tunnel could not start; inspect: sudo journalctl -u $TUNNEL_SERVICE_NAME -n 100"
+  sudo_cmd systemctl is-enabled --quiet "$TUNNEL_SERVICE_NAME" || \
+    die "Cloudflare Tunnel is active but not enabled for startup."
   ok "Cloudflare Tunnel is running for https://$CF_TUNNEL_HOSTNAME"
 }
 
 disable_managed_cloudflare_tunnel_runtime() {
   local service_file
   service_file="$(managed_cloudflare_tunnel_service_file)"
-  [ -f "$service_file" ] || return 0
-  if ! sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file"; then
-    warn "Keeping $service_file because it is not managed by this setup."
+  command -v systemctl >/dev/null 2>&1 || return 0
+  if [ ! -f "$service_file" ]; then
+    if sudo_cmd systemctl is-active --quiet "$TUNNEL_SERVICE_NAME"; then
+      warn "Cloudflare Tunnel unit is active but is not at the managed unit path; leaving it untouched."
+      return 1
+    fi
     return 0
   fi
-  command -v systemctl >/dev/null 2>&1 || return 0
-  sudo_cmd systemctl disable --now "$TUNNEL_SERVICE_NAME" >/dev/null 2>&1 || true
+  if ! sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$service_file"; then
+    warn "Keeping $service_file because it is not managed by this setup."
+    return 1
+  fi
+  sudo_cmd systemctl disable --now "$TUNNEL_SERVICE_NAME" >/dev/null || \
+    die "Could not disable the managed Cloudflare Tunnel service."
+  if sudo_cmd systemctl is-active --quiet "$TUNNEL_SERVICE_NAME"; then
+    die "Cloudflare Tunnel still reports active after it was stopped."
+  fi
+  if sudo_cmd systemctl is-enabled --quiet "$TUNNEL_SERVICE_NAME"; then
+    die "Cloudflare Tunnel is stopped but remains enabled for startup."
+  fi
 }
 
 remove_managed_cloudflare_tunnel() {
@@ -1335,6 +1398,7 @@ configure_optional_cloudflare_tunnel() {
     fi
   fi
 
+  assert_manageable_cloudflare_tunnel_service
   ensure_cloudflared
   if [ "$existing_profile" = true ]; then
     service_user="$CF_TUNNEL_SERVICE_USER"
@@ -1396,20 +1460,27 @@ manage_saved_cloudflare_tunnel() {
         warn "No saved Cloudflare Tunnel exists. Choose option 3 to create one first."
         return
       fi
+      assert_manageable_cloudflare_tunnel_service
       state_set "CLOUDFLARE_TUNNEL_ENABLED" "true"
       ensure_cloudflare_tunnel_runtime
-      ok "Cloudflare Tunnel is ON."
+      sudo_cmd systemctl is-active --quiet "$TUNNEL_SERVICE_NAME" || die "Cloudflare Tunnel did not become active."
+      ok "Cloudflare Tunnel is ON and its systemd service is active."
       ;;
     2)
       if ! cloudflare_tunnel_profile_is_saved; then
         warn "No saved Cloudflare Tunnel exists to turn off."
         return
       fi
+      assert_manageable_cloudflare_tunnel_service
       state_set "CLOUDFLARE_TUNNEL_ENABLED" "false"
-      disable_managed_cloudflare_tunnel_runtime
-      ok "Cloudflare Tunnel is OFF; its hostname and credentials remain saved."
+      if disable_managed_cloudflare_tunnel_runtime; then
+        ok "Cloudflare Tunnel is OFF; its hostname and credentials remain saved."
+      else
+        warn "The saved state is OFF, but an unmanaged tunnel service was left untouched; see the runtime status above."
+      fi
       ;;
     3)
+      assert_manageable_cloudflare_tunnel_service
       configure_optional_cloudflare_tunnel replace
       ;;
     0|'') info "Cloudflare Tunnel settings unchanged." ;;
@@ -1532,6 +1603,58 @@ disable_managed_proxy_runtime() {
       if [ -f "/etc/systemd/system/$unit" ] \
         && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "/etc/systemd/system/$unit"; then
         sudo_cmd systemctl disable --now "$unit" >/dev/null 2>&1 || true
+      fi
+    done
+  fi
+}
+
+proxy_runtime_services_are_active() {
+  local unit
+  command -v systemctl >/dev/null 2>&1 || return 1
+  for unit in redsocks-lavalink.service lavalink-egress-rules.service; do
+    sudo_cmd systemctl is-active --quiet "$unit" || return 1
+  done
+  return 0
+}
+
+proxy_any_runtime_service_is_active() {
+  local unit
+  command -v systemctl >/dev/null 2>&1 || return 1
+  for unit in redsocks-lavalink.service lavalink-egress-rules.service; do
+    if sudo_cmd systemctl is-active --quiet "$unit"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+proxy_redirection_rule_is_active() {
+  local helper_file="/usr/local/sbin/lavalink-egress-rules" owner redirect_port
+
+  [ -f "$helper_file" ] || return 1
+  sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$helper_file" || return 1
+  owner="$(sudo_cmd awk -F'"' '/^LAVALINK_USER=/ { print $2; exit }' "$helper_file")"
+  redirect_port="$(sudo_cmd awk -F= '/^REDIRECT_PORT=/ { print $2; exit }' "$helper_file")"
+  [ -n "$owner" ] && [[ "$redirect_port" =~ ^[0-9]+$ ]] || return 1
+  command -v iptables >/dev/null 2>&1 || return 1
+  sudo_cmd iptables -w -t nat -C OUTPUT -p tcp -m owner --uid-owner "$owner" -j REDIRECT --to-ports "$redirect_port" >/dev/null 2>&1
+}
+
+verify_proxy_runtime_is_off() {
+  local unit
+
+  if proxy_redirection_rule_is_active; then
+    die "Proxy routing is still active in iptables after turning it OFF. Inspect: sudo iptables -t nat -S OUTPUT"
+  fi
+  if proxy_any_runtime_service_is_active; then
+    die "A managed proxy service is still active after turning the proxy OFF. Inspect: sudo systemctl status redsocks-lavalink lavalink-egress-rules"
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    for unit in redsocks-lavalink.service lavalink-egress-rules.service; do
+      if [ -f "/etc/systemd/system/$unit" ] \
+        && sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "/etc/systemd/system/$unit" \
+        && sudo_cmd systemctl is-enabled --quiet "$unit"; then
+        die "Managed proxy unit $unit remains enabled after turning the proxy OFF."
       fi
     done
   fi
@@ -1671,7 +1794,8 @@ remove_rule() {
 case "\$ACTION" in
   add) add_rule ;;
   remove) remove_rule ;;
-  *) echo "Usage: \$0 {add|remove}" >&2; exit 2 ;;
+  status) rule -C OUTPUT -p tcp -m owner --uid-owner "\$LAVALINK_USER" -j REDIRECT --to-ports "\$REDIRECT_PORT" ;;
+  *) echo "Usage: \$0 {add|remove|status}" >&2; exit 2 ;;
 esac
 EOF
   sudo_cmd chmod 700 /usr/local/sbin/lavalink-egress-rules
@@ -1721,7 +1845,90 @@ EOF
   sudo_cmd systemctl start lavalink-egress-rules.service
   sudo_cmd systemctl is-active --quiet redsocks-lavalink.service || die "redsocks could not start; inspect: sudo journalctl -u redsocks-lavalink -n 100"
   sudo_cmd systemctl is-active --quiet lavalink-egress-rules.service || die "Lavalink proxy rules could not start; inspect: sudo journalctl -u lavalink-egress-rules -n 100"
+  sudo_cmd systemctl is-enabled --quiet redsocks-lavalink.service || die "redsocks is active but not enabled for startup."
+  sudo_cmd systemctl is-enabled --quiet lavalink-egress-rules.service || die "Lavalink proxy rules are active but not enabled for startup."
+  proxy_redirection_rule_is_active || die "The proxy services started, but the Lavalink TCP redirection rule is missing. Inspect: sudo iptables -t nat -S OUTPUT"
+  verify_lavalink_proxy_egress "$service_user"
   ok "Transparent $PROXY_LABEL routing is active for TCP traffic from user $service_user; Discord UDP remains direct."
+}
+
+apply_saved_proxy_state() {
+  local unit_file="/etc/systemd/system/$SERVICE_NAME.service"
+  local service_user was_active=false
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    die "systemd is required to manage Lavalink proxy routing."
+  fi
+
+  if [ -f "$unit_file" ]; then
+    if ! sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$unit_file"; then
+      die "The Lavalink unit is not managed by this setup; proxy changes cannot be applied to it safely."
+    fi
+    service_user="$(sudo_cmd awk -F= '/^User=/ { print $2; exit }' "$unit_file")"
+    [ -n "$service_user" ] || service_user="root"
+    if sudo_cmd systemctl is-active --quiet "$SERVICE_NAME"; then
+      was_active=true
+    fi
+
+    if proxy_is_enabled; then
+      ensure_proxy_runtime "$service_user"
+      update_lavalink_proxy_dependencies true "$unit_file"
+      sudo_cmd systemctl daemon-reload
+    else
+      # Remove the Lavalink dependency before stopping proxy units; otherwise
+      # systemd may stop the player as a dependent before we can restart it.
+      update_lavalink_proxy_dependencies false "$unit_file"
+      sudo_cmd systemctl daemon-reload
+      disable_managed_proxy_runtime
+      verify_proxy_runtime_is_off
+    fi
+
+    if [ "$was_active" = true ]; then
+      sudo_cmd systemctl restart "$SERVICE_NAME"
+      sudo_cmd systemctl is-active --quiet "$SERVICE_NAME" || die "Lavalink did not come back after applying the proxy setting. Inspect: sudo journalctl -u $SERVICE_NAME -n 100"
+      ok "Restarted Lavalink so new connections use the updated egress path."
+    else
+      info "Lavalink was already stopped; its unit configuration was updated without starting it."
+    fi
+
+    if proxy_is_enabled; then
+      proxy_redirection_rule_is_active || die "The proxy setting is ON but its iptables routing rule is not active."
+    else
+      verify_proxy_runtime_is_off
+    fi
+    return 0
+  fi
+
+  if sudo_cmd systemctl cat "$SERVICE_NAME" >/dev/null 2>&1; then
+    die "A Lavalink systemd unit exists outside this setup directory; proxy changes cannot be applied to it safely."
+  fi
+
+  # No systemd Lavalink unit exists. Still apply/clear the per-user routing so
+  # an existing foreground test keeps using the saved choice. Otherwise, do
+  # not proxy the installation user's unrelated TCP traffic while Lavalink is
+  # stopped; the next test/install activates the saved profile.
+  if proxy_is_enabled; then
+    if proxy_any_runtime_service_is_active || proxy_redirection_rule_is_active; then
+      service_user="$(installation_service_user)"
+      ensure_proxy_runtime "$service_user"
+    else
+      info "No Lavalink systemd service is installed; the saved proxy will activate on the next test or install."
+    fi
+  else
+    disable_managed_proxy_runtime
+    verify_proxy_runtime_is_off
+  fi
+}
+
+assert_manageable_lavalink_unit_for_proxy() {
+  local unit_file="/etc/systemd/system/$SERVICE_NAME.service"
+  command -v systemctl >/dev/null 2>&1 || die "systemd is required to manage Lavalink proxy routing."
+  if [ -f "$unit_file" ]; then
+    sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$unit_file" || \
+      die "The Lavalink service is not managed by this setup; proxy settings were not changed."
+  elif sudo_cmd systemctl cat "$SERVICE_NAME" >/dev/null 2>&1; then
+    die "A Lavalink service exists outside this setup directory; proxy settings were not changed."
+  fi
 }
 
 run_lavalink_as_user() {
@@ -1733,6 +1940,16 @@ run_lavalink_as_user() {
   else
     sudo_cmd runuser -u "$service_user" -- "$@"
   fi
+}
+
+verify_lavalink_proxy_egress() {
+  local service_user="$1" egress_ip
+  command -v curl >/dev/null 2>&1 || die "curl is required to verify Lavalink proxy egress."
+  egress_ip="$(run_lavalink_as_user "$service_user" curl --noproxy '*' -4fsS --connect-timeout 10 --max-time 25 https://api.ipify.org)" || \
+    die "TCP from Lavalink user $service_user cannot reach the internet through the proxy. Inspect the redsocks logs and proxy credentials."
+  [[ "$egress_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || \
+    die "The Lavalink proxy egress check returned an invalid IPv4 address."
+  ok "Verified TCP egress from Lavalink user $service_user: $egress_ip"
 }
 
 ensure_ytdlp_temp_dir() {
@@ -1770,6 +1987,7 @@ run_test() {
     ensure_proxy_runtime "$service_user"
   else
     disable_managed_proxy_runtime
+    verify_proxy_runtime_is_off
   fi
   if [ "$SETUP_MODE" = ytdlp ]; then
     ensure_ytdlp_temp_dir "$service_user"
@@ -1806,6 +2024,7 @@ install_systemd() {
     systemd_dependencies=$'Requires=redsocks-lavalink.service lavalink-egress-rules.service\nAfter=redsocks-lavalink.service lavalink-egress-rules.service'
   else
     disable_managed_proxy_runtime
+    verify_proxy_runtime_is_off
   fi
   if [ "$SETUP_MODE" = ytdlp ]; then
     ensure_ytdlp_temp_dir "$service_user"
@@ -1839,9 +2058,50 @@ EOF
   sudo_cmd systemctl restart "$SERVICE_NAME"
   if cloudflare_tunnel_is_enabled; then
     ensure_cloudflare_tunnel_runtime
+  elif ! disable_managed_cloudflare_tunnel_runtime; then
+    warn "An unmanaged Cloudflare Tunnel service remains active; it was left untouched."
   fi
   sudo_cmd systemctl status "$SERVICE_NAME" --no-pager
   follow_systemd_logs
+}
+
+update_lavalink_proxy_dependencies() {
+  local enabled="$1" unit_file="$2" temporary_file
+
+  [ -f "$unit_file" ] || die "The Lavalink systemd unit is missing: $unit_file"
+  sudo_cmd grep -Fqx "$MANAGED_SERVICE_MARKER" "$unit_file" || \
+    die "Refusing to modify an unmanaged Lavalink systemd unit: $unit_file"
+
+  temporary_file="$(mktemp)"
+  if ! sudo_cmd awk -v proxy_enabled="$enabled" '
+    /^Requires=redsocks-lavalink\.service lavalink-egress-rules\.service$/ { next }
+    /^After=redsocks-lavalink\.service lavalink-egress-rules\.service$/ { next }
+    /^Wants=network-online\.target$/ {
+      print
+      if (proxy_enabled == "true") {
+        print "Requires=redsocks-lavalink.service lavalink-egress-rules.service"
+        print "After=redsocks-lavalink.service lavalink-egress-rules.service"
+      }
+      found_wants = 1
+      next
+    }
+    { print }
+    END { if (!found_wants) exit 3 }
+  ' "$unit_file" > "$temporary_file"; then
+    rm -f "$temporary_file"
+    die "Could not safely update the Lavalink systemd proxy dependencies."
+  fi
+
+  sudo_cmd install -o root -g root -m 644 "$temporary_file" "$unit_file"
+  rm -f "$temporary_file"
+  if [ "$enabled" = true ]; then
+    sudo_cmd grep -Fqx 'Requires=redsocks-lavalink.service lavalink-egress-rules.service' "$unit_file" || \
+      die "The Lavalink unit was not updated to require the proxy services."
+  else
+    if sudo_cmd grep -Fqx 'Requires=redsocks-lavalink.service lavalink-egress-rules.service' "$unit_file"; then
+      die "The Lavalink unit still requires proxy services after turning the proxy OFF."
+    fi
+  fi
 }
 
 require_systemd_service() {
@@ -2068,7 +2328,7 @@ main() {
       migrate_ytdlp_compatibility_config
       configure_optional_proxy
       configure_optional_cloudflare_tunnel
-      restart_running_service_after_mode_switch
+      restart_running_service_after_setup_change
     fi
 
     while true; do
