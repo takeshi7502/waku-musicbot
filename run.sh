@@ -38,6 +38,7 @@ MANAGED_SERVICE_MARKER="# Managed by waku-musicbot Lavalink setup"
 LAVALINK_RELEASE_API="https://api.github.com/repos/lavalink-devs/Lavalink/releases/latest"
 YOUTUBE_RELEASE_API="https://api.github.com/repos/lavalink-devs/youtube-source/releases/latest"
 YTDLP_RELEASE_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download"
+SETUP_RAW_BASE="https://raw.githubusercontent.com/takeshi7502/waku-musicbot/lavalink"
 
 SETUP_MODE="plugin"
 SETUP_MANAGEMENT_ONLY=false
@@ -268,6 +269,80 @@ fetch_url() {
   else
     die "curl or wget is required to download Lavalink. Install one manually, then run this script again."
   fi
+}
+
+is_git_worktree() {
+  command -v git >/dev/null 2>&1 \
+    && [ "$(git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree 2>/dev/null || true)" = "true" ]
+}
+
+download_setup_update() {
+  local filename="$1" destination="$SCRIPT_DIR/$1" temporary_file source_url cache_buster
+
+  cache_buster="$(date +%s)"
+  source_url="$SETUP_RAW_BASE/$filename?cache=$cache_buster"
+  temporary_file="${destination}.update.$$"
+  rm -f "$temporary_file"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --retry 2 --connect-timeout 10 --max-time 60 \
+      -H 'Cache-Control: no-cache' "$source_url" -o "$temporary_file" || {
+        rm -f "$temporary_file"
+        return 2
+      }
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q --no-cache -O "$temporary_file" "$source_url" || {
+      rm -f "$temporary_file"
+      return 2
+    }
+  else
+    return 2
+  fi
+
+  [ -s "$temporary_file" ] || {
+    rm -f "$temporary_file"
+    return 2
+  }
+  if [ -f "$destination" ] && cmp -s "$destination" "$temporary_file"; then
+    rm -f "$temporary_file"
+    return 1
+  fi
+
+  mv "$temporary_file" "$destination"
+  [ "$filename" != "run.sh" ] || chmod 700 "$destination"
+  return 0
+}
+
+self_update_setup() {
+  local filename update_status
+  local -a updated_files=()
+
+  case "${LAVALINK_SETUP_SKIP_UPDATE:-}" in
+    1|true|TRUE|yes|YES) return ;;
+  esac
+  if is_git_worktree; then
+    info "Git worktree detected; keeping local setup files. Use git pull to update this checkout."
+    return
+  fi
+  if [ ! -f "$SCRIPT_DIR/run.sh" ]; then
+    warn "Skipping self-update because run.sh is not installed as a regular file."
+    return
+  fi
+
+  info "Checking for setup updates..."
+  for filename in run.sh example.application.yml example.ytdlp.application.yml; do
+    if download_setup_update "$filename"; then
+      updated_files+=("$filename")
+      continue
+    fi
+    update_status=$?
+    [ "$update_status" -eq 1 ] || warn "Could not update $filename; continuing with the installed copy."
+  done
+
+  [ "${#updated_files[@]}" -gt 0 ] || return 0
+  ok "Updated setup files: ${updated_files[*]}"
+  info "Restarting setup with the latest version..."
+  exec env LAVALINK_SETUP_SKIP_UPDATE=1 bash "$SCRIPT_DIR/run.sh" "$@"
 }
 
 download_file() {
@@ -812,15 +887,19 @@ manage_saved_proxy() {
     fi
     info "A proxy URI is saved and its current state is $current_state."
   else
-    warn "No saved proxy URI exists yet. Choose replace to enter one."
+    warn "No saved proxy URI exists yet. Choose option 3 to enter one."
   fi
 
-  read_tty "Proxy action [on/off/replace] (Enter to cancel): "
+  echo "1) Turn proxy ON"
+  echo "2) Turn proxy OFF"
+  echo "3) Replace proxy"
+  echo "0) Back"
+  read_tty "Choose [0]: "
   action="${REPLY:-}"
   case "$action" in
-    on|ON)
+    1)
       if ! proxy_profile_is_saved; then
-        warn "No saved proxy exists. Choose replace and enter a URI first."
+        warn "No saved proxy exists. Choose option 3 and enter a proxy first."
         return
       fi
       state_set "PROXY_ENABLED" "true"
@@ -828,7 +907,7 @@ manage_saved_proxy() {
       ok "Saved $PROXY_LABEL proxy is ON."
       info "Choose option 1 to apply it and restart Lavalink."
       ;;
-    off|OFF)
+    2)
       if ! proxy_profile_is_saved; then
         warn "No saved proxy exists to turn off."
         return
@@ -838,12 +917,12 @@ manage_saved_proxy() {
       ok "Saved $PROXY_LABEL proxy is OFF; its URI remains saved."
       info "Choose option 1 to remove proxy routing and restart Lavalink directly."
       ;;
-    replace|REPLACE)
+    3)
       configure_optional_proxy replace
       info "The replacement proxy is saved as ON. Choose option 1 to apply it."
       ;;
-    '') info "Proxy settings unchanged." ;;
-    *) warn "Enter on, off, or replace." ;;
+    0|'') info "Proxy settings unchanged." ;;
+    *) warn "Please choose a number from 0 to 3." ;;
   esac
 }
 
@@ -1253,22 +1332,26 @@ manage_saved_cloudflare_tunnel() {
   if cloudflare_tunnel_profile_is_saved; then
     show_cloudflare_tunnel_menu_status
   else
-    warn "No Cloudflare Tunnel is saved yet. Choose replace to create one."
+    warn "No Cloudflare Tunnel is saved yet. Choose option 3 to create one."
   fi
 
-  read_tty "Cloudflare Tunnel action [on/off/replace] (Enter to cancel): "
+  echo "1) Turn Cloudflare Tunnel ON"
+  echo "2) Turn Cloudflare Tunnel OFF"
+  echo "3) Replace public hostname"
+  echo "0) Back"
+  read_tty "Choose [0]: "
   action="${REPLY:-}"
   case "$action" in
-    on|ON)
+    1)
       if ! cloudflare_tunnel_profile_is_saved; then
-        warn "No saved Cloudflare Tunnel exists. Choose replace to create one first."
+        warn "No saved Cloudflare Tunnel exists. Choose option 3 to create one first."
         return
       fi
       state_set "CLOUDFLARE_TUNNEL_ENABLED" "true"
       ensure_cloudflare_tunnel_runtime
       ok "Cloudflare Tunnel is ON."
       ;;
-    off|OFF)
+    2)
       if ! cloudflare_tunnel_profile_is_saved; then
         warn "No saved Cloudflare Tunnel exists to turn off."
         return
@@ -1277,11 +1360,11 @@ manage_saved_cloudflare_tunnel() {
       disable_managed_cloudflare_tunnel_runtime
       ok "Cloudflare Tunnel is OFF; its hostname and credentials remain saved."
       ;;
-    replace|REPLACE)
+    3)
       configure_optional_cloudflare_tunnel replace
       ;;
-    '') info "Cloudflare Tunnel settings unchanged." ;;
-    *) warn "Enter on, off, or replace." ;;
+    0|'') info "Cloudflare Tunnel settings unchanged." ;;
+    *) warn "Please choose a number from 0 to 3." ;;
   esac
 }
 
@@ -1948,8 +2031,8 @@ main() {
       echo "4) Restart Lavalink systemd service"
       echo "5) Stop Lavalink systemd service"
       echo "6) Uninstall Lavalink"
-      echo "7) Manage HTTP / SOCKS5 proxy (on/off/replace)"
-      echo "8) Manage Cloudflare Tunnel (on/off/replace)"
+      echo "7) Manage HTTP / SOCKS5 proxy (1/2/3)"
+      echo "8) Manage Cloudflare Tunnel (1/2/3)"
       echo "9) Back to setup menu"
       echo "0) Exit"
       read_tty "Choose: "
@@ -1972,4 +2055,5 @@ main() {
   done
 }
 
+self_update_setup "$@"
 main "$@"

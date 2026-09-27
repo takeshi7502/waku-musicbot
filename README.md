@@ -29,8 +29,11 @@ bash <(curl -fsSL "https://raw.githubusercontent.com/takeshi7502/waku-musicbot/l
 ```
 
 Lệnh tạo thư mục `~/lavalink`, tải `run.sh` cùng hai mẫu cấu hình, sau đó mở
-luôn trình thiết lập. Chạy lại lệnh này sẽ cập nhật ba file setup trên, nhưng
-giữ nguyên `application.yml`, JAR, plugin, log và cấu hình proxy đã có.
+luôn trình thiết lập. Từ lần sau chỉ cần chạy `bash run.sh` trong thư mục đó:
+script tự cập nhật `run.sh` và hai mẫu cấu hình mới nhất, rồi chạy lại chính
+nó. `application.yml`, JAR, plugin, log và cấu hình proxy vẫn được giữ nguyên.
+Nếu đang chạy từ một Git worktree, self-update được bỏ qua để không ghi đè code
+local; dùng `git pull` cho trường hợp đó.
 
 Đầu tiên script hỏi source mode:
 
@@ -55,9 +58,9 @@ Vẫn có thể nhập trực tiếp `socks5://user:password@host:port` hoặc
 proxy trước, lưu URI ở
 `~/lavalink/.lavalink-socks5-proxy` với quyền owner-only, rồi dùng `redsocks`
 để chuyển **TCP của riêng tiến trình Lavalink** qua proxy. Những lần chạy sau tự
-dùng lại proxy đã lưu, không bắt nhập lại. Mục `7` nhận `on`, `off` hoặc
-`replace`: `off` ngừng dùng routing proxy nhưng vẫn giữ URI; `on` dùng lại URI
-đó; `replace` mới hỏi URI khác. Chọn mục `1` để áp dụng thay đổi và restart
+dùng lại proxy đã lưu, không bắt nhập lại. Mục `7` có menu số: `1` bật, `2` tắt,
+`3` thay proxy và `0` quay lại. Tắt chỉ ngừng routing nhưng vẫn giữ URI; bật
+dùng lại URI đó. Chọn mục `1` để áp dụng thay đổi và restart
 service. HTTP proxy phải hỗ trợ phương thức `CONNECT` tới Internet. Nhờ đó
 yt-dlp và Java đều dùng cùng IP egress; Discord UDP vẫn đi trực tiếp. Proxy này
 dùng được cho cả hai mode. Không tự cài remote cipher, Docker,
@@ -76,8 +79,9 @@ cùng CNAME cho hostname đã nhập, rồi chạy service `lavalink-cloudflared
 firewall/provider.
 
 Sau khi setup, thêm node vào bot với hostname đó, port `443`, `secure: true` và
-password Lavalink đang dùng. Mục `8` trong menu service nhận `on`, `off` hoặc
-`replace`; `off` chỉ dừng tunnel, vẫn giữ hostname/credentials để bật lại.
+password Lavalink đang dùng. Mục `8` có menu số: `1` bật tunnel, `2` tắt,
+`3` thay hostname và `0` quay lại. Tắt chỉ dừng tunnel, vẫn giữ
+hostname/credentials để bật lại.
 Gỡ node chỉ xóa service và credentials cục bộ. Remote tunnel/DNS vẫn nằm trong
 Cloudflare account để tránh tự ý xóa tài nguyên trên account.
 
