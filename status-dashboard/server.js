@@ -13,6 +13,8 @@ const DATA_DIR = path.join(ROOT, "data");
 const UPTIME_HISTORY_PATH = path.join(DATA_DIR, "uptime-history.json");
 const REQUEST_TIMEOUT_MS = 3500;
 const ACTIVITY_STREAM_RETRY_MS = 3000;
+const ACTIVITY_UNAVAILABLE_RETRY_MS = 60 * 1000;
+const ACTIVITY_RECONCILE_MS = 30 * 1000;
 const UPTIME_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UPTIME_SAMPLE_MS = 60 * 1000;
 const MAX_NODES = 12;
@@ -156,8 +158,8 @@ function createNodeRuntime() {
     activityStreamResponse: null,
     activityStreamReconnectTimer: null,
     activityStreamLive: false,
-    activityPollingUnsupported: false,
-    activityStreamUnsupported: false
+    activityStreamFrameVersion: 0,
+    activityNextPollAt: 0
   };
 }
 
@@ -440,7 +442,15 @@ function createNodeStatusPayload(node, statsResult, infoResult) {
 
 async function nodeStatusPayload(node) {
   const runtime = nodeRuntime.get(node.id);
-  const shouldPollActivity = !runtime.activityStreamLive && !runtime.activityPollingUnsupported;
+  // An open SSE socket is not proof that it still delivers events. Reconcile
+  // against the plugin snapshot periodically even while the stream is live.
+  const shouldPollActivity = Date.now() >= runtime.activityNextPollAt;
+  const streamFrameVersionBeforePoll = runtime.activityStreamFrameVersion;
+  if (shouldPollActivity) {
+    runtime.activityNextPollAt = Date.now() + (runtime.activityStreamLive
+      ? ACTIVITY_RECONCILE_MS
+      : config.dashboard.refreshSeconds * 1000);
+  }
   const activityRequest = shouldPollActivity
     ? requestLavalink(node, "/status/activity")
     : Promise.resolve(null);
@@ -451,11 +461,22 @@ async function nodeStatusPayload(node) {
   ]);
 
   if (shouldPollActivity && activityResult.status === "rejected" && activityResult.reason?.statusCode === 404) {
-    runtime.activityPollingUnsupported = true;
+    // A temporary 404 (for example during a proxy or plugin restart) must not
+    // disable activity updates until the dashboard itself restarts.
+    runtime.activityNextPollAt = Date.now() + ACTIVITY_UNAVAILABLE_RETRY_MS;
   }
 
   if (shouldPollActivity && activityResult.status === "fulfilled" && activityResult.value) {
-    replaceActivityCache(runtime, activityPayload(activityResult.value, node));
+    // An SSE frame received during this HTTP request is newer than the
+    // snapshot we requested. Do not overwrite it with an older response.
+    if (runtime.activityStreamFrameVersion === streamFrameVersionBeforePoll) {
+      const changed = replaceActivityCache(runtime, activityPayload(activityResult.value, node));
+      if (changed && runtime.activityStreamLive && runtime.activityStreamResponse) {
+        // The snapshot disagrees with an apparently live stream: reconnect it
+        // so future changes can arrive immediately again.
+        runtime.activityStreamResponse.destroy(new Error("activity snapshot diverged from stream"));
+      }
+    }
   }
 
   return createNodeStatusPayload(node, statsResult, infoResult);
@@ -534,12 +555,12 @@ function broadcastActivityChange(node, runtime, snapshot) {
   broadcastStatus(statusCache);
 }
 
-function scheduleActivityStreamReconnect(node, runtime) {
-  if (runtime.activityStreamUnsupported || runtime.activityStreamReconnectTimer) return;
+function scheduleActivityStreamReconnect(node, runtime, delayMs = ACTIVITY_STREAM_RETRY_MS) {
+  if (runtime.activityStreamReconnectTimer) return;
   runtime.activityStreamReconnectTimer = setTimeout(() => {
     runtime.activityStreamReconnectTimer = null;
     connectActivityStream(node);
-  }, ACTIVITY_STREAM_RETRY_MS);
+  }, delayMs);
   runtime.activityStreamReconnectTimer.unref();
 }
 
@@ -555,8 +576,11 @@ function handleActivityStreamFrame(node, runtime, frame) {
   if (!data) return;
 
   try {
+    const snapshot = JSON.parse(data);
     runtime.activityStreamLive = true;
-    broadcastActivityChange(node, runtime, JSON.parse(data));
+    runtime.activityStreamFrameVersion += 1;
+    runtime.activityNextPollAt = Date.now() + ACTIVITY_RECONCILE_MS;
+    broadcastActivityChange(node, runtime, snapshot);
   } catch (error) {
     console.warn(`Ignored an invalid activity stream message from ${node.id}:`, error.message);
   }
@@ -564,7 +588,7 @@ function handleActivityStreamFrame(node, runtime, frame) {
 
 function connectActivityStream(node) {
   const runtime = nodeRuntime.get(node.id);
-  if (runtime.activityStreamUnsupported || runtime.activityStreamRequest || runtime.activityStreamResponse || runtime.activityStreamReconnectTimer) return;
+  if (runtime.activityStreamRequest || runtime.activityStreamResponse || runtime.activityStreamReconnectTimer) return;
 
   const target = new URL("/status/activity/stream", node.url);
   const client = target.protocol === "https:" ? https : http;
@@ -572,14 +596,15 @@ function connectActivityStream(node) {
   let streamBuffer = "";
   let response = null;
 
-  const closeAndRetry = (reason, retry = true) => {
+  const closeAndRetry = (reason, retryDelayMs = ACTIVITY_STREAM_RETRY_MS) => {
     if (closed) return;
     closed = true;
     runtime.activityStreamLive = false;
+    runtime.activityNextPollAt = 0;
     if (runtime.activityStreamRequest === request) runtime.activityStreamRequest = null;
     if (runtime.activityStreamResponse === response) runtime.activityStreamResponse = null;
     if (reason) console.warn(`Activity stream ${node.id} closed: ${reason}`);
-    if (retry) scheduleActivityStreamReconnect(node, runtime);
+    scheduleActivityStreamReconnect(node, runtime, retryDelayMs);
   };
 
   const request = client.request(
@@ -593,12 +618,12 @@ function connectActivityStream(node) {
       }
     },
     (incoming) => {
+      request.setTimeout(0);
       response = incoming;
       if (incoming.statusCode < 200 || incoming.statusCode >= 300) {
         incoming.resume();
         if (incoming.statusCode === 404) {
-          runtime.activityStreamUnsupported = true;
-          closeAndRetry(null, false);
+          closeAndRetry("Lavalink returned HTTP 404; retrying later.", ACTIVITY_UNAVAILABLE_RETRY_MS);
           return;
         }
         closeAndRetry(`Lavalink returned HTTP ${incoming.statusCode}.`);
@@ -625,6 +650,7 @@ function connectActivityStream(node) {
   );
 
   runtime.activityStreamRequest = request;
+  request.setTimeout(REQUEST_TIMEOUT_MS, () => request.destroy(new Error("Lavalink activity stream connection timed out.")));
   request.on("error", (error) => closeAndRetry(error.message));
   request.end();
 }

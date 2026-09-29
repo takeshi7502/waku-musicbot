@@ -9,7 +9,9 @@ the Discord bot.
 - Direct Lavalink statistics for up to 12 nodes: online state, player counts,
   uptime, CPU and RAM. Node rows are collapsed by default and expand on click.
 - A live/recent feed of up to 50 tracks, provided immediately by
-  `../status-plugin` over one local Server-Sent Events connection.
+  `../status-plugin` over one Server-Sent Events connection per node. The
+  dashboard also checks each plugin's activity snapshot every 30 seconds while
+  the stream is live, so a silent/stale connection cannot freeze the feed.
 - One shared five-second Lavalink refresh for node statistics. Both the node
   snapshot and realtime activity changes are streamed to connected browsers;
   visitors never trigger their own Lavalink polling loop.
