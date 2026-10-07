@@ -26,6 +26,55 @@ the Discord bot.
 The page never receives Lavalink's password. The Node sidecar uses it locally,
 and only returns a deliberately small public response to the browser.
 
+## Deploy on Vercel
+
+The web can run entirely on Vercel while Lavalink continues running on your
+own machines. No dashboard VPS, `config.json`, or extra database is required.
+
+1. Import `takeshi7502/waku-musicbot` as a single project (not the bot's
+   Next.js `dashboard` or a multi-service project).
+2. Set the production branch to `lavalink` under **Settings → Environments →
+   Production → Branch Tracking**.
+3. Set **Root Directory** to `status-dashboard` and **Framework Preset** to
+   **Other**. Keep build/output overrides disabled: `vercel.json` defines the
+   Node function, static assets and routes. Do not use `npm start` as a build command.
+4. Add the server-side environment variable `LAVALINK_NODES` for Production
+   (and Preview if needed). Its value is a JSON array, for example:
+
+   ```json
+   [
+     {"id":"dell","name":"Dell","url":"https://dell.takeshi.dev:443","password":"YOUR_NODE_PASSWORD"},
+     {"id":"node2","name":"Node 2","url":"http://YOUR_VPS_IP:3333","password":"YOUR_OTHER_PASSWORD"}
+   ]
+   ```
+
+   Each node URL must be reachable **from Vercel**, not `localhost` or a LAN IP.
+   Lavalink passwords stay in the function and are never sent to the browser.
+   Do not prefix these variables with `NEXT_PUBLIC_`, and never commit credentials.
+5. Under **Deployments → Create Deployment**, deploy the `lavalink` branch.
+   Redeploy after changing environment variables.
+
+Optional environment variables:
+
+| Variable | Default | Value |
+| --- | --- | --- |
+| `DASHBOARD_REFRESH_SECONDS` | `5` | Refresh interval, clamped to 3–60 seconds |
+| `DASHBOARD_TIME_ZONE` | `Asia/Ho_Chi_Minh` | IANA time zone |
+| `DASHBOARD_NEWS` | `[]` | JSON array of notices using the same fields as `config.example.json` |
+
+On Vercel the browser polls `/api/status` at the configured interval. The
+function fetches fresh statistics and `/status/activity` snapshots on demand;
+there are no persistent upstream streams or background polling timers. Nodes
+still need the status plugin to show tracks. The VPS deployment retains SSE
+and its existing `config.json` behavior; environment node configuration takes
+precedence if provided.
+
+24-hour availability is **unavailable on Vercel**, because a function instance
+is not a continuous monitoring process and its local files are not persistent.
+The dashboard does not invent uptime history. Node uptime, CPU, RAM, player
+counts and activity continue working. `local: true` is ignored on Vercel so
+the function host's network counters cannot be mistaken for a node's traffic.
+
 ## Install on the Lavalink VPS
 
 The expected VPS layout is:

@@ -262,7 +262,8 @@ function updateNodeCard(card, node) {
     cpu: online ? `${((node.cpu?.lavalinkLoad || 0) * 100).toFixed(1)}%` : "—",
     "system-load": online ? `${((node.cpu?.systemLoad || 0) * 100).toFixed(1)}%` : "—",
     memory: online ? `${formatBytes(node.memory?.used || 0)} / ${formatBytes(node.memory?.allocated || 0)}` : "—",
-    availability: node.uptime24h?.available ? `${node.uptime24h.percentage.toFixed(2)}%` : "Đang thu thập",
+    availability: node.uptime24h?.available ? `${node.uptime24h.percentage.toFixed(2)}%`
+      : node.uptime24h?.reason === "serverless" ? "Không khả dụng" : "Đang thu thập",
     cores: online ? `${node.cpu?.cores || 0} cores` : "—",
     network: typeof node.networkBytes === "number" ? formatBytes(node.networkBytes) : "Không rõ"
   };
@@ -485,4 +486,46 @@ function startStatusStream() {
   window.addEventListener("beforeunload", () => stream.close(), { once: true });
 }
 
-startStatusStream();
+async function startStatusUpdates() {
+  let polling = false;
+  let delayMs = 5000;
+  let stopped = false;
+  let timer;
+  let activeRequest;
+  window.addEventListener("beforeunload", () => {
+    stopped = true;
+    clearTimeout(timer);
+    activeRequest?.abort();
+  }, { once: true });
+
+  const update = async () => {
+    const controller = new AbortController();
+    activeRequest = controller;
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch("/api/status", { cache: "no-store", signal: controller.signal });
+      // HTTP 503 with a valid payload means all nodes are offline, not that
+      // the dashboard failed. Render it so the last online state is cleared.
+      if (!response.ok && response.status !== 503) throw new Error("Status request failed");
+      const payload = await response.json();
+      if (!Array.isArray(payload.nodes)) throw new Error("Invalid status response");
+      if (stopped) return;
+      render(payload);
+      if (!polling && payload.transport !== "polling") {
+        startStatusStream();
+        return;
+      }
+      polling = true;
+      delayMs = Math.min(60, Math.max(3, Number(payload.refreshSeconds) || 5)) * 1000;
+    } catch {
+      if (!stopped) elements.lastUpdate.textContent = "Mất kết nối cập nhật — đang thử lại…";
+    } finally {
+      clearTimeout(timeout);
+      activeRequest = null;
+    }
+    if (!stopped) timer = setTimeout(update, delayMs);
+  };
+  await update();
+}
+
+void startStatusUpdates();

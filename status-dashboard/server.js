@@ -7,6 +7,7 @@ const path = require("node:path");
 const { URL } = require("node:url");
 
 const ROOT = __dirname;
+const SERVERLESS = process.env.VERCEL === "1";
 const PUBLIC_DIR = path.join(ROOT, "public");
 const CONFIG_PATH = path.join(ROOT, "config.json");
 const DATA_DIR = path.join(ROOT, "data");
@@ -42,11 +43,30 @@ const CONTENT_TYPES = {
 };
 
 function loadConfig() {
-  if (!fs.existsSync(CONFIG_PATH)) {
-    throw new Error(`Missing ${CONFIG_PATH}. Copy config.example.json to config.json and configure the Lavalink nodes.`);
+  let raw;
+  if (process.env.LAVALINK_NODES !== undefined) {
+    try {
+      raw = { nodes: JSON.parse(process.env.LAVALINK_NODES) };
+    } catch {
+      throw new Error("LAVALINK_NODES must be a valid JSON array of nodes.");
+    }
+  } else if (!SERVERLESS && fs.existsSync(CONFIG_PATH)) {
+    raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8").replace(/^\uFEFF/, ""));
+  } else {
+    throw new Error("Configure LAVALINK_NODES in Environment Variables, or copy config.example.json to config.json when running on a VPS.");
   }
 
-  const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8").replace(/^\uFEFF/, ""));
+  raw.dashboard = raw.dashboard || {};
+  if (process.env.DASHBOARD_REFRESH_SECONDS !== undefined) raw.dashboard.refreshSeconds = process.env.DASHBOARD_REFRESH_SECONDS;
+  if (process.env.DASHBOARD_TIME_ZONE !== undefined) raw.dashboard.timeZone = process.env.DASHBOARD_TIME_ZONE;
+  if (process.env.DASHBOARD_NEWS !== undefined) {
+    try {
+      raw.dashboard.news = JSON.parse(process.env.DASHBOARD_NEWS);
+    } catch {
+      throw new Error("DASHBOARD_NEWS must be a valid JSON array.");
+    }
+    if (!Array.isArray(raw.dashboard.news)) throw new Error("DASHBOARD_NEWS must be a valid JSON array.");
+  }
   const host = raw.listen?.host || "127.0.0.1";
   const port = Number(raw.listen?.port || 3010);
   const dashboard = raw.dashboard || {};
@@ -68,7 +88,7 @@ function loadConfig() {
       : [];
 
   if (!rawNodes.length || rawNodes.length > MAX_NODES) {
-    throw new Error(`config.json must contain between 1 and ${MAX_NODES} nodes.`);
+    throw new Error(`Configure between 1 and ${MAX_NODES} Lavalink nodes.`);
   }
 
   const seenIds = new Set();
@@ -126,7 +146,7 @@ function parseNode(rawNode, index, fallbackName) {
     password,
     // Lavalink reports CPU/RAM remotely, but network bytes belong to the host
     // that runs the dashboard. Keep this opt-in for a truthful remote-node card.
-    local: Boolean(value.local)
+    local: !SERVERLESS && Boolean(value.local)
   };
 }
 
@@ -164,6 +184,7 @@ function createNodeRuntime() {
 }
 
 function loadUptimeHistory() {
+  if (SERVERLESS) return {};
   try {
     const stored = JSON.parse(fs.readFileSync(UPTIME_HISTORY_PATH, "utf8"));
     const nodes = {};
@@ -188,6 +209,7 @@ function normaliseSamples(samples) {
 }
 
 function recordAvailability(nodeId, online) {
+  if (SERVERLESS) return;
   const now = Date.now();
   const cutoff = now - UPTIME_WINDOW_MS;
   const history = uptimeHistory[nodeId] || { samples: [] };
@@ -209,6 +231,7 @@ function recordAvailability(nodeId, online) {
 }
 
 function uptime24Hours(nodeId) {
+  if (SERVERLESS) return { available: false, coverageMs: 0, percentage: null, reason: "serverless" };
   const now = Date.now();
   const samples = (uptimeHistory[nodeId]?.samples || []).filter((entry) => entry.at >= now - UPTIME_WINDOW_MS);
   const firstSampleAt = samples[0]?.at || now;
@@ -288,9 +311,15 @@ function requestLavalink(node, route) {
             reject(new Error("Lavalink returned invalid JSON."));
           }
         });
+        response.on("error", reject);
+        response.on("aborted", () => reject(new Error("Lavalink response was interrupted.")));
       }
     );
 
+    // Bound the entire request, including DNS, TLS and a slow trickle of data,
+    // not just idle socket time. Serverless responses must always finish.
+    const deadline = setTimeout(() => request.destroy(new Error("Lavalink request timed out.")), REQUEST_TIMEOUT_MS);
+    request.on("close", () => clearTimeout(deadline));
     request.on("timeout", () => request.destroy(new Error("Lavalink request timed out.")));
     request.on("error", reject);
     request.end();
@@ -444,7 +473,7 @@ async function nodeStatusPayload(node) {
   const runtime = nodeRuntime.get(node.id);
   // An open SSE socket is not proof that it still delivers events. Reconcile
   // against the plugin snapshot periodically even while the stream is live.
-  const shouldPollActivity = Date.now() >= runtime.activityNextPollAt;
+  const shouldPollActivity = SERVERLESS || Date.now() >= runtime.activityNextPollAt;
   const streamFrameVersionBeforePoll = runtime.activityStreamFrameVersion;
   if (shouldPollActivity) {
     runtime.activityNextPollAt = Date.now() + (runtime.activityStreamLive
@@ -459,6 +488,12 @@ async function nodeStatusPayload(node) {
     requestLavalink(node, "/v4/info"),
     activityRequest
   ]);
+
+  if (SERVERLESS && activityResult.status === "rejected") {
+    // Warm function instances must not keep showing an old playing track when
+    // the current snapshot is unavailable.
+    runtime.activity = unavailableActivityPayload();
+  }
 
   if (shouldPollActivity && activityResult.status === "rejected" && activityResult.reason?.statusCode === 404) {
     // A temporary 404 (for example during a proxy or plugin restart) must not
@@ -486,6 +521,7 @@ async function statusPayload() {
   const nodes = await Promise.all(config.nodes.map(nodeStatusPayload));
   return {
     generatedAt: Date.now(),
+    transport: SERVERLESS ? "polling" : "sse",
     refreshSeconds: config.dashboard.refreshSeconds,
     timeZone: config.dashboard.timeZone,
     news: normaliseNews(config.dashboard.news),
@@ -515,6 +551,7 @@ function unavailableNodePayload(node) {
 function unavailableStatusPayload() {
   return {
     generatedAt: Date.now(),
+    transport: SERVERLESS ? "polling" : "sse",
     refreshSeconds: config.dashboard.refreshSeconds,
     timeZone: config.dashboard.timeZone,
     news: normaliseNews(config.dashboard.news),
@@ -702,7 +739,7 @@ function sendStatic(response, requestPath) {
   fs.createReadStream(filePath).pipe(response);
 }
 
-const server = http.createServer((request, response) => {
+async function handleRequest(request, response) {
   const requestUrl = new URL(request.url || "/", "http://localhost");
 
   if (request.method !== "GET") {
@@ -716,11 +753,16 @@ const server = http.createServer((request, response) => {
   }
 
   if (requestUrl.pathname === "/api/status") {
+    if (SERVERLESS) await refreshStatusCache();
     sendJson(response, statusCache.nodes.some((node) => node.online) ? 200 : 503, statusCache);
     return;
   }
 
   if (requestUrl.pathname === "/api/status/stream") {
+    if (SERVERLESS) {
+      sendJson(response, 404, { error: "Use /api/status polling on Vercel." });
+      return;
+    }
     response.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
@@ -736,12 +778,24 @@ const server = http.createServer((request, response) => {
   }
 
   sendStatic(response, requestUrl.pathname);
-});
+}
 
-server.listen(config.listen.port, config.listen.host, () => {
-  console.log(`Takeshi Lavalink status dashboard listening on http://${config.listen.host}:${config.listen.port}`);
-});
+module.exports = handleRequest;
 
-void refreshStatusCache();
-for (const node of config.nodes) connectActivityStream(node);
-setInterval(refreshStatusCache, config.dashboard.refreshSeconds * 1000).unref();
+if (require.main === module) {
+  const server = http.createServer((request, response) => {
+    handleRequest(request, response).catch(() => {
+      if (!response.headersSent) sendJson(response, 500, { error: "Could not serve dashboard request." });
+      else response.destroy();
+    });
+  });
+  server.listen(config.listen.port, config.listen.host, () => {
+    console.log(`Takeshi Lavalink status dashboard listening on http://${config.listen.host}:${config.listen.port}`);
+  });
+
+  if (!SERVERLESS) {
+    void refreshStatusCache();
+    for (const node of config.nodes) connectActivityStream(node);
+    setInterval(refreshStatusCache, config.dashboard.refreshSeconds * 1000).unref();
+  }
+}
