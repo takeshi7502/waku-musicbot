@@ -463,16 +463,45 @@ async function offerTestedNodeAdd(client, submission, input, mainInteraction) {
   });
 
   collector.on("collect", async (button) => {
-    collector.stop("added");
     const saved = testedNodeSessions.get(token);
-    testedNodeSessions.delete(token);
-    if (!saved || saved.userId !== button.user.id) return;
+    if (!saved || saved.userId !== button.user.id) {
+      await button
+        .reply({
+          embeds: [
+            buildInfoEmbed(client, "#FF0000", t("lavalink.testResultExpired")),
+          ],
+          ephemeral: true,
+        })
+        .catch(() => {});
+      return;
+    }
 
-    await button.deferUpdate().catch(() => {});
+    // stop() emits "end" synchronously, so claim the session before cleanup.
+    testedNodeSessions.delete(token);
+    collector.stop("added");
+
+    const acknowledged = await button
+      .deferUpdate()
+      .then(() => true)
+      .catch(() => false);
+    if (!acknowledged) {
+      await submission.editReply({ components: [] }).catch(() => {});
+      return;
+    }
+
     const reportProgress = (embed) =>
-      submission.editReply({ embeds: [embed], components: [] }).catch(() => {});
-    const result = await addNode(client, saved.input, reportProgress);
-    await submission
+      button.editReply({ embeds: [embed], components: [] }).catch(() => {});
+    let result;
+    try {
+      result = await addNode(client, saved.input, reportProgress);
+    } catch (error) {
+      result = buildInfoEmbed(
+        client,
+        "#FF0000",
+        t("lavalink.errorGeneric", { error: error?.message || String(error) })
+      );
+    }
+    await button
       .editReply({ embeds: [result], components: [] })
       .catch(() => {});
     await refreshMainMenu(client, saved.mainInteraction).catch(() => {});

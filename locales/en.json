@@ -477,6 +477,7 @@
     "nodeRemoved": "✅ **Node removed successfully!**\n**ID:** `{id}`\n**Host:** `{host}:{port}`",
     "nodeReplaced": "✅ **Node replaced successfully!**\n**ID:** `{id}`\n**Old:** `{oldHost}:{oldPort}`\n**New:** `{host}:{port}` ({ssl})\n**Latency:** {latency}ms",
     "addBtn": "➕ Add this Node",
+    "testResultExpired": "⏰ This test result has expired or was already used. Test the node again before adding it.",
     "addedNotify": "➕ **New Node Added**\n**ID:** `{id}` | **Host:** `{host}:{port}`\n**Total nodes:** {count}",
     "removedNotify": "➖ **Node Removed**\n**ID:** `{id}` | **Host:** `{host}:{port}`\n**Nodes remaining:** {count}",
     "replacedNotify": "🔄 **Node Replaced**\n**ID:** `{id}`\n**Old:** `{oldHost}:{oldPort}`\n**New:** `{host}:{port}`",

@@ -477,6 +477,7 @@
     "nodeRemoved": "✅ **ノードは正常に削除されました!**\n**ID:** `{id}`\n**ホスト:** `{host}:{port}`",
     "nodeReplaced": "✅ **ノードは正常に交換されました!**\n**ID:** `{id}`\n**古い:** `{oldHost}:{oldPort}`\n**新機能:** `{host}:{port}` ({ssl})\n**レイテンシ:** {latency}ms",
     "addBtn": "➕ このノードを追加します",
+    "testResultExpired": "⏰ このテスト結果は期限切れ、または使用済みです。追加する前にノードを再テストしてください。",
     "addedNotify": "➕ **新しいノードが追加されました**\n**ID:** `{id}` | **ホスト:** `{host}:{port}`\n**合計ノード数:** {count}",
     "removedNotify": "➖ **ノードが削除されました**\n**ID:** `{id}` | **ホスト:** `{host}:{port}`\n**残りのノード数:** {count}",
     "replacedNotify": "🔄 **ノードが置き換えられました**\n**ID:** `{id}`\n**古い:** `{oldHost}:{oldPort}`\n**新機能:** `{host}:{port}`",

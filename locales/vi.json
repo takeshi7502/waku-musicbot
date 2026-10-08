@@ -477,6 +477,7 @@
     "nodeRemoved": "✅ **Đã xoá node thành công!**\n**ID:** `{id}`\n**Host:** `{host}:{port}`",
     "nodeReplaced": "✅ **Đã thay thế node thành công!**\n**ID:** `{id}`\n**Cũ:** `{oldHost}:{oldPort}`\n**Mới:** `{host}:{port}` ({ssl})\n**Latency:** {latency}ms",
     "addBtn": "➕ Thêm Node này",
+    "testResultExpired": "⏰ Kết quả kiểm tra đã hết hạn hoặc đã được sử dụng. Hãy kiểm tra lại node trước khi thêm.",
     "addedNotify": "➕ **Node Mới Đã Thêm**\n**ID:** `{id}` | **Host:** `{host}:{port}`\n**Tổng nodes:** {count}",
     "removedNotify": "➖ **Node Đã Xoá**\n**ID:** `{id}` | **Host:** `{host}:{port}`\n**Nodes còn lại:** {count}",
     "replacedNotify": "🔄 **Node Đã Thay Thế**\n**ID:** `{id}`\n**Cũ:** `{oldHost}:{oldPort}`\n**Mới:** `{host}:{port}`",
